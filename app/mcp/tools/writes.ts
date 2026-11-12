@@ -9,6 +9,11 @@ import {
   snapshotResumeForApplication,
 } from "~/lib/documents.server";
 import {
+  addApplicationEvent,
+  recordStatusChange,
+  USER_EVENT_TYPES,
+} from "~/lib/timeline.server";
+import {
   APPLICATION_STATUSES,
   applicationDocuments,
   applications,
@@ -36,7 +41,7 @@ export function registerWriteTools(server: McpServer, userId: number): void {
     "update_application_status",
     {
       description:
-        "Updates the status of an application. Valid statuses: wishlist, applied, interviewing, offer, accepted, rejected. If the status moves out of 'wishlist' and appliedAt is unset, appliedAt is backfilled with today's date. Moving from 'wishlist' to 'applied' also saves a PDF copy of the linked resume with the application (see get_application documents); if that copy cannot be made, the status still changes.",
+        "Updates the status of an application. Valid statuses: wishlist, applied, interviewing, offer, accepted, rejected. A real change also adds a 'status' event ('Moved to <Status>') to the application's timeline. If the status moves out of 'wishlist' and appliedAt is unset, appliedAt is backfilled with today's date. Moving from 'wishlist' to 'applied' also saves a PDF copy of the linked resume with the application (see get_application documents); if that copy cannot be made, the status still changes.",
       inputSchema: {
         id: z.number().int().positive(),
         status: z.enum(APPLICATION_STATUSES),
@@ -61,6 +66,7 @@ export function registerWriteTools(server: McpServer, userId: number): void {
         .set(patch)
         .where(and(eq(applications.id, id), eq(applications.userId, userId)))
         .run();
+      if (existing.status !== status) recordStatusChange(userId, id, status);
       await snapshotOnApplied(userId, id, existing.status, status);
       const updated = db
         .select()
@@ -110,10 +116,48 @@ export function registerWriteTools(server: McpServer, userId: number): void {
   );
 
   server.registerTool(
+    "add_application_event",
+    {
+      description:
+        "Adds a dated event to an application's timeline: something that happened (an email, call, interview, offer, rejection, follow-up) or something scheduled for a future date. Use this, not append_application_note, whenever the thing has a date; append_application_note is for undated free-text notes. Types: note, email, call, interview, offer, rejection, follow_up, other ('status' events are written by the app on status changes). occurredAt is YYYY-MM-DD and defaults to today in the user's time zone. Give a title, a body, or both. networkContactId optionally links one of the user's network contacts. An email, call, interview or follow_up dated today or earlier moves the application's lastContactAt forward; an event dated after today sets nextStepAt when it is the nearest upcoming date. Returns { id, applicationId, type, occurredAt }; get_application lists the events.",
+      inputSchema: {
+        applicationId: z.number().int().positive(),
+        type: z.enum(USER_EVENT_TYPES),
+        occurredAt: z.string().optional(),
+        title: z.string().optional(),
+        body: z.string().optional(),
+        networkContactId: z.number().int().positive().optional(),
+      },
+    },
+    async ({ applicationId, type, occurredAt, title, body, networkContactId }) => {
+      const result = addApplicationEvent(userId, {
+        applicationId,
+        type,
+        occurredAt,
+        title,
+        body,
+        networkContactId,
+      });
+      if (!result.ok) {
+        return result.error === "not_found"
+          ? errorResult(`Application ${applicationId} not found`)
+          : errorResult(result.message);
+      }
+      const { event } = result;
+      return jsonResult({
+        id: event.id,
+        applicationId: event.applicationId,
+        type: event.type,
+        occurredAt: event.occurredAt,
+      });
+    },
+  );
+
+  server.registerTool(
     "append_application_note",
     {
       description:
-        "Appends a note to an application's notes field, with an ISO timestamp header. Never overwrites prior content.",
+        "Appends a note to an application's free-text notes field, with an ISO timestamp header. Never overwrites prior content. For something that happened or is scheduled on a date (an email, call, interview, deadline), use add_application_event instead.",
       inputSchema: {
         id: z.number().int().positive(),
         note: z.string().trim().min(1),

@@ -296,6 +296,51 @@ export const applicationDocuments = sqliteTable(
   (t) => [index("application_documents_application_idx").on(t.applicationId)],
 );
 
+// ── Application timeline (dated things that happened or are scheduled) ──
+
+/**
+ * Event types. Order drives the type select in the UI. "status" is written
+ * only by the app when an application's status changes.
+ */
+export const APPLICATION_EVENT_TYPES = [
+  "note",
+  "status",
+  "email",
+  "call",
+  "interview",
+  "offer",
+  "rejection",
+  "follow_up",
+  "other",
+] as const;
+export type ApplicationEventType = (typeof APPLICATION_EVENT_TYPES)[number];
+
+export const applicationEvents = sqliteTable(
+  "application_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    applicationId: integer("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    type: text("type").notNull().$type<ApplicationEventType>(),
+    /** Calendar date, YYYY-MM-DD, in APP_TIMEZONE. May be in the future. */
+    occurredAt: text("occurred_at").notNull(),
+    title: text("title"),
+    body: text("body"),
+    networkContactId: integer("network_contact_id").references(
+      () => networkContacts.id,
+      { onDelete: "set null" },
+    ),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [
+    index("application_events_application_idx").on(t.applicationId, t.occurredAt),
+  ],
+);
+
 // ── OAuth 2.1 (MCP authorization server) ──
 //
 // The app is its own authorization server for the `/mcp` resource: Claude's

@@ -1,14 +1,18 @@
+import { useEffect, useRef } from "react";
 import { Form, Link, redirect, useFetcher, useLoaderData } from "react-router";
 import { db } from "~/db";
 import {
   applications,
   companies,
+  networkContacts,
   resumes,
   APPLICATION_STATUSES,
 } from "~/db/schema";
 import { and, asc, eq } from "drizzle-orm";
 import { requireUserId } from "~/lib/auth.server";
 import { deleteApplication, listApplicationDocuments } from "~/lib/documents.server";
+import { listApplicationEvents, USER_EVENT_TYPES } from "~/lib/timeline.server";
+import { appToday } from "~/lib/dates";
 import { ConfirmButton } from "~/components/ConfirmButton";
 import type { Route } from "./+types/applications.$id";
 
@@ -33,11 +37,24 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     .where(eq(resumes.userId, userId))
     .orderBy(asc(resumes.name))
     .all();
+  // Contacts at this application's company first, then everyone else.
+  const contacts = db
+    .select({ id: networkContacts.id, name: networkContacts.name, companyId: networkContacts.companyId })
+    .from(networkContacts)
+    .where(eq(networkContacts.userId, userId))
+    .orderBy(asc(networkContacts.name))
+    .all()
+    .map((c) => ({ id: c.id, name: c.name, atCompany: app.companyId != null && c.companyId === app.companyId }))
+    .sort((a, b) => Number(b.atCompany) - Number(a.atCompany));
   return {
     app,
     companies: userCompanies,
     resumes: userResumes,
     documents: listApplicationDocuments(userId, id),
+    events: listApplicationEvents(userId, id),
+    contacts,
+    today: appToday(),
+    eventTypes: USER_EVENT_TYPES,
   };
 }
 
@@ -53,7 +70,8 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function ApplicationDetail() {
-  const { app, companies, resumes, documents } = useLoaderData<typeof loader>();
+  const { app, companies, resumes, documents, events, contacts, today, eventTypes } =
+    useLoaderData<typeof loader>();
   return (
     <div className="max-w-3xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
@@ -227,6 +245,14 @@ export default function ApplicationDetail() {
         </div>
       </Form>
 
+      <TimelineSection
+        applicationId={app.id}
+        events={events}
+        contacts={contacts}
+        today={today}
+        eventTypes={eventTypes}
+      />
+
       <DocumentsSection
         applicationId={app.id}
         resumeId={app.resumeId}
@@ -250,6 +276,187 @@ export default function ApplicationDetail() {
         </button>
       </Form>
     </div>
+  );
+}
+
+type EventItem = ReturnType<typeof listApplicationEvents>[number];
+
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  note: "Note",
+  status: "Status",
+  email: "Email",
+  call: "Call",
+  interview: "Interview",
+  offer: "Offer",
+  rejection: "Rejection",
+  follow_up: "Follow-up",
+  other: "Other",
+};
+
+const inputClass =
+  "w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white";
+const labelClass = "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1";
+
+function TimelineSection({
+  applicationId,
+  events,
+  contacts,
+  today,
+  eventTypes,
+}: {
+  applicationId: number;
+  events: EventItem[];
+  contacts: { id: number; name: string; atCompany: boolean }[];
+  today: string;
+  eventTypes: readonly string[];
+}) {
+  const add = useFetcher<{ ok?: boolean }>();
+  const formRef = useRef<HTMLFormElement>(null);
+  const saving = add.state !== "idle";
+  const failed = add.state === "idle" && add.data != null && !add.data.ok;
+  const atCompany = contacts.filter((c) => c.atCompany);
+  const others = contacts.filter((c) => !c.atCompany);
+
+  useEffect(() => {
+    if (add.state === "idle" && add.data?.ok) formRef.current?.reset();
+  }, [add.state, add.data]);
+
+  return (
+    <section className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-5 space-y-3">
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Timeline</h3>
+
+      <add.Form ref={formRef} method="post" action="/api/applications" className="space-y-3">
+        <input type="hidden" name="_action" value="add_event" />
+        <input type="hidden" name="id" value={applicationId} />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className={labelClass} htmlFor="event-type">Type</label>
+            <select id="event-type" name="type" defaultValue="note" className={inputClass}>
+              {eventTypes.map((t) => (
+                <option key={t} value={t}>
+                  {EVENT_TYPE_LABELS[t] ?? t}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="event-date">Date</label>
+            <input id="event-date" type="date" name="occurredAt" defaultValue={today} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="event-contact">Contact</label>
+            <select id="event-contact" name="networkContactId" defaultValue="" className={inputClass}>
+              <option value="">— None —</option>
+              {atCompany.length > 0 ? (
+                <>
+                  <optgroup label="At this company">
+                    {atCompany.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </optgroup>
+                  {others.length > 0 && (
+                    <optgroup label="Everyone else">
+                      {others.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </>
+              ) : (
+                others.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))
+              )}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="event-title">Title</label>
+          <input id="event-title" type="text" name="title" className={inputClass} placeholder="Recruiter screen" />
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="event-body">Details</label>
+          <textarea id="event-body" name="body" rows={2} className={`${inputClass} resize-y`} />
+        </div>
+        <div className="flex items-center justify-end gap-3">
+          {failed && (
+            <p className="text-sm text-red-600 dark:text-red-400">
+              Could not add the event. Give it a title or details and a valid date.
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? "Adding..." : "Add event"}
+          </button>
+        </div>
+      </add.Form>
+
+      {events.length > 0 && (
+        <ul className="divide-y divide-gray-200 dark:divide-gray-800 border-t border-gray-200 dark:border-gray-800">
+          {events.map((e) =>
+            e.type === "status" ? (
+              <li key={e.id} className="flex items-center gap-3 py-1.5 text-xs text-gray-500 dark:text-gray-400">
+                <span className="tabular-nums">{e.occurredAt}</span>
+                <span>{e.title}</span>
+                <span className="ml-auto">
+                  <DeleteEventButton id={e.id} label={e.title ?? "this event"} />
+                </span>
+              </li>
+            ) : (
+              <li key={e.id} className="py-2 text-sm space-y-1">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="tabular-nums text-gray-500 dark:text-gray-400">{e.occurredAt}</span>
+                  <span className="text-[10px] rounded-full px-2 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                    {EVENT_TYPE_LABELS[e.type] ?? e.type}
+                  </span>
+                  {e.occurredAt > today && (
+                    <span className="text-[10px] rounded-full px-2 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200">
+                      Upcoming
+                    </span>
+                  )}
+                  {e.title && (
+                    <span className="font-medium text-gray-900 dark:text-white">{e.title}</span>
+                  )}
+                  {e.contactName && (
+                    <span className="text-gray-600 dark:text-gray-400">with {e.contactName}</span>
+                  )}
+                  <span className="ml-auto">
+                    <DeleteEventButton id={e.id} label={e.title ?? "this event"} />
+                  </span>
+                </div>
+                {e.body && (
+                  <p className="whitespace-pre-wrap text-gray-700 dark:text-gray-300">{e.body}</p>
+                )}
+              </li>
+            ),
+          )}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function DeleteEventButton({ id, label }: { id: number; label: string }) {
+  const fetcher = useFetcher();
+  const formId = `delete-event-${id}`;
+  return (
+    <>
+      <fetcher.Form id={formId} method="post" action="/api/applications" className="hidden">
+        <input type="hidden" name="_action" value="delete_event" />
+        <input type="hidden" name="eventId" value={id} />
+      </fetcher.Form>
+      <ConfirmButton
+        formId={formId}
+        title="Delete event?"
+        message={`"${label}" will be removed from the timeline. The application's dates stay as they are.`}
+        className="text-xs text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
+      >
+        {fetcher.state !== "idle" ? "Deleting..." : "Delete"}
+      </ConfirmButton>
+    </>
   );
 }
 

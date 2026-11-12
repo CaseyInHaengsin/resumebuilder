@@ -24,6 +24,7 @@ import { buildResumeData } from "~/lib/resume-data";
 import { analyzeCoverage, type LibraryItem } from "~/lib/keywords";
 import { getPublicUrl } from "~/lib/oauth.server";
 import { listApplicationDocuments } from "~/lib/documents.server";
+import { listApplicationEvents } from "~/lib/timeline.server";
 import { loadResumeForPdf } from "~/lib/resume-pdf.server";
 
 function toJsonContent(data: unknown) {
@@ -258,7 +259,10 @@ function composeApplication(userId: number, applicationId: number) {
     createdAt: d.createdAt,
     url: `${getPublicUrl()}/documents/${d.id}`,
   }));
-  return { application: app, company: company ?? null, documents };
+  const events = listApplicationEvents(userId, applicationId).map(
+    ({ createdAt: _c, ...e }) => e,
+  );
+  return { application: app, company: company ?? null, documents, events };
 }
 
 function composeJob(userId: number, jobId: number) {
@@ -533,7 +537,7 @@ export function registerReadTools(server: McpServer, userId: number): void {
     "get_application",
     {
       description:
-        "Returns a single application with its resolved company (if any) and its stored documents: PDF copies of what was sent, newest first, each with { id, kind ('resume' | 'cover_letter'), fileName, createdAt, url }. A url downloads the copy and needs the user to be signed in to the app in their browser.",
+        "Returns a single application with its resolved company (if any) and its stored documents: PDF copies of what was sent, newest first, each with { id, kind ('resume' | 'cover_letter'), fileName, createdAt, url }. A url downloads the copy and needs the user to be signed in to the app in their browser. Also returns its timeline events, newest first: { id, type, occurredAt, title, body, networkContactId, contactName }; events dated after today are scheduled.",
       inputSchema: { id: z.number().int().positive() },
     },
     async ({ id }) => {

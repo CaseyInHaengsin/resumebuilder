@@ -27,6 +27,9 @@ export default function AppLayout() {
               Resume Builder
             </span>
             <div className="flex items-center gap-6">
+              <NavLink to="/" end className={linkClasses}>
+                Today
+              </NavLink>
               <NavLink to="/library" className={linkClasses}>
                 Library
               </NavLink>

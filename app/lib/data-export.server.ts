@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "~/db";
 import {
+  applicationEvents,
   applications,
   bullets,
   companies,
@@ -41,6 +42,7 @@ const EMPTY_IMPORT_TEMPLATE = {
     resumeBullets: ["resumeId", "bulletId"],
     applications: ["id", "jobTitle", "createdAt", "updatedAt"],
     networkContacts: ["id", "name", "createdAt", "updatedAt"],
+    applicationEvents: ["applicationId", "type", "occurredAt", "createdAt"],
   },
   allowedValues: {
     bullets: { parentType: ["job", "project"], priority: [1, 2, 3] },
@@ -53,6 +55,19 @@ const EMPTY_IMPORT_TEMPLATE = {
         "offer",
         "accepted",
         "rejected",
+      ],
+    },
+    applicationEvents: {
+      type: [
+        "note",
+        "status",
+        "email",
+        "call",
+        "interview",
+        "offer",
+        "rejection",
+        "follow_up",
+        "other",
       ],
     },
   },
@@ -199,6 +214,7 @@ function buildEmptyExportData() {
     resumeBullets: [],
     applications: [],
     networkContacts: [],
+    applicationEvents: [],
   };
 }
 
@@ -233,6 +249,7 @@ export async function buildExportPayload(
     resumeBulletsRows,
     applicationsRows,
     networkContactsRows,
+    applicationEventsRows,
   ] = await Promise.all([
     db.select().from(contact).where(eq(contact.userId, userId)),
     db.select().from(education).where(eq(education.userId, userId)),
@@ -289,6 +306,10 @@ export async function buildExportPayload(
       .select()
       .from(networkContacts)
       .where(eq(networkContacts.userId, userId)),
+    db
+      .select()
+      .from(applicationEvents)
+      .where(eq(applicationEvents.userId, userId)),
   ]);
 
   const data = {
@@ -307,6 +328,7 @@ export async function buildExportPayload(
     resumeBullets: resumeBulletsRows,
     applications: stripUser(applicationsRows),
     networkContacts: stripUser(networkContactsRows),
+    applicationEvents: stripUser(applicationEventsRows),
   };
 
   return {

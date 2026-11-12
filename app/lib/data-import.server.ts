@@ -67,6 +67,8 @@ export function importUserData(userId: number, payload: ExportPayload) {
         bullets: new Map(),
         companies: new Map(),
         resumes: new Map(),
+        applications: new Map(),
+        networkContacts: new Map(),
       };
 
       const insert = (
@@ -299,7 +301,7 @@ export function importUserData(userId: number, payload: ExportPayload) {
 
       // 5. applications
       for (const r of d.applications ?? []) {
-        insert(
+        const newId = insert(
           "applications",
           [
             "user_id",
@@ -340,11 +342,12 @@ export function importUserData(userId: number, payload: ExportPayload) {
             r.updatedAt,
           ],
         );
+        if (r.id != null) idMap.applications.set(r.id, newId);
       }
 
       // 6. network contacts — references companies
       for (const r of hasNetwork ? d.networkContacts : []) {
-        insert(
+        const newId = insert(
           "network_contacts",
           [
             "user_id",
@@ -365,6 +368,40 @@ export function importUserData(userId: number, payload: ExportPayload) {
             r.source ?? "manual",
             r.createdAt,
             r.updatedAt,
+          ],
+        );
+        if (r.id != null) idMap.networkContacts.set(r.id, newId);
+      }
+
+      // 7. application events — reference applications and network contacts.
+      // Backups taken before the timeline have no `applicationEvents` key;
+      // their applications come back without events.
+      for (const r of d.applicationEvents ?? []) {
+        const aid = idMap.applications.get(r.applicationId);
+        if (aid == null) continue;
+        insert(
+          "application_events",
+          [
+            "user_id",
+            "application_id",
+            "type",
+            "occurred_at",
+            "title",
+            "body",
+            "network_contact_id",
+            "created_at",
+          ],
+          [
+            userId,
+            aid,
+            r.type,
+            r.occurredAt,
+            r.title ?? null,
+            r.body ?? null,
+            r.networkContactId != null
+              ? idMap.networkContacts.get(r.networkContactId) ?? null
+              : null,
+            r.createdAt,
           ],
         );
       }

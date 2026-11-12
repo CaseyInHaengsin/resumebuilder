@@ -16,6 +16,11 @@ import {
   snapshotOnApplied,
   snapshotResumeForApplication,
 } from "~/lib/documents.server";
+import {
+  addApplicationEvent,
+  deleteApplicationEvent,
+  recordStatusChange,
+} from "~/lib/timeline.server";
 import type { Route } from "./+types/api.applications";
 
 function isStatus(s: unknown): s is ApplicationStatus {
@@ -124,12 +129,21 @@ export async function action({ request }: Route.ActionArgs) {
     if (status) next.status = status;
     if (form.has("jobDescription"))
       next.jobDescription = strOrNull(form, "jobDescription");
+    const before = db
+      .select({ status: applications.status })
+      .from(applications)
+      .where(
+        and(eq(applications.id, id), eq(applications.userId, userId)),
+      )
+      .get();
     db.update(applications)
       .set(next)
       .where(
         and(eq(applications.id, id), eq(applications.userId, userId)),
       )
       .run();
+    if (before && status && status !== before.status)
+      recordStatusChange(userId, id, status);
     return redirect(`/applications/${id}`);
   }
 
@@ -159,9 +173,44 @@ export async function action({ request }: Route.ActionArgs) {
         and(eq(applications.id, id), eq(applications.userId, userId)),
       )
       .run();
+    if (row && row.status !== statusRaw) recordStatusChange(userId, id, statusRaw);
     // Keep a copy of the resume that went out. Never fails the status change.
     if (row) await snapshotOnApplied(userId, id, row.status, statusRaw);
     return new Response("ok");
+  }
+
+  if (_action === "add_event") {
+    const id = Number(form.get("id"));
+    if (!Number.isInteger(id) || id <= 0)
+      return new Response("Not found", { status: 404 });
+    const contactRaw = strOrNull(form, "networkContactId");
+    let networkContactId: number | null = null;
+    if (contactRaw != null) {
+      networkContactId = Number(contactRaw);
+      if (!Number.isInteger(networkContactId) || networkContactId <= 0)
+        return new Response("Unknown network contact", { status: 400 });
+    }
+    const result = addApplicationEvent(userId, {
+      applicationId: id,
+      type: form.get("type"),
+      occurredAt: strOrNull(form, "occurredAt"),
+      title: strOrNull(form, "title"),
+      body: strOrNull(form, "body"),
+      networkContactId,
+    });
+    if (!result.ok) {
+      return result.error === "not_found"
+        ? new Response("Not found", { status: 404 })
+        : new Response(result.message, { status: 400 });
+    }
+    return { ok: true, eventId: result.event.id };
+  }
+
+  if (_action === "delete_event") {
+    const eventId = Number(form.get("eventId"));
+    if (!Number.isInteger(eventId) || eventId <= 0 || !deleteApplicationEvent(userId, eventId))
+      return new Response("Not found", { status: 404 });
+    return { ok: true };
   }
 
   if (_action === "snapshot_resume") {
