@@ -27,7 +27,7 @@ export function importUserData(userId: number, payload: ExportPayload) {
   // better-sqlite3 driver doesn't expose its inner Database, so we open a
   // second handle on the same file. SQLite handles concurrent same-process
   // handles fine; the transaction will lock the DB while it runs.
-  const dbPath = path.resolve("data/resume.db");
+  const dbPath = path.resolve(process.env.DATABASE_PATH ?? "data/resume.db");
   const sqlite = new Database(dbPath);
   sqlite.pragma("foreign_keys = ON");
 

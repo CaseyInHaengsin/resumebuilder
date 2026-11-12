@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-const UPLOADS_DIR = path.resolve("data/uploads");
+// UPLOADS_DIR lets tests point at a throwaway directory.
+const UPLOADS_DIR = path.resolve(process.env.UPLOADS_DIR ?? "data/uploads");
 const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
 const ALLOWED = new Set([
   "image/jpeg",

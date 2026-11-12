@@ -4,7 +4,8 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import path from "node:path";
 import fs from "node:fs";
 
-const dbPath = path.resolve("data/resume.db");
+// DATABASE_PATH lets tests point at a throwaway database.
+const dbPath = path.resolve(process.env.DATABASE_PATH ?? "data/resume.db");
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
 const sqlite = new Database(dbPath);

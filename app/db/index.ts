@@ -4,7 +4,8 @@ import bcrypt from "bcryptjs";
 import * as schema from "./schema";
 import path from "node:path";
 
-const dbPath = path.resolve("data/resume.db");
+// DATABASE_PATH lets tests point at a throwaway database.
+const dbPath = path.resolve(process.env.DATABASE_PATH ?? "data/resume.db");
 const sqlite = new Database(dbPath);
 sqlite.pragma("journal_mode = WAL");
 sqlite.pragma("foreign_keys = ON");
