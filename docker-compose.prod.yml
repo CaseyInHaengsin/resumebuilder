@@ -8,6 +8,8 @@ services:
       NODE_ENV: "production"
       PORT: "3000"
       HOST: "0.0.0.0"
+      # Zone used for "today" (applied dates, follow-up flags).
+      APP_TIMEZONE: "America/Denver"
     volumes:
       # Persist sqlite db + uploaded images on the host
       - /mnt/user/appdata/resume-builder-web/data:/app/data

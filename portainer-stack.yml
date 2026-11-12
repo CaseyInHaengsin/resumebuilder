@@ -8,6 +8,8 @@ services:
       NODE_ENV: "production"
       PORT: "3000"
       HOST: "0.0.0.0"
+      # Zone used for "today" (applied dates, follow-up flags).
+      APP_TIMEZONE: "America/Denver"
       # Generate with: openssl rand -hex 32
       SESSION_SECRET: "CHANGE_ME_TO_A_RANDOM_64_CHAR_HEX_STRING"
       # Set to "true" once you front the app with HTTPS (reverse proxy, etc.)

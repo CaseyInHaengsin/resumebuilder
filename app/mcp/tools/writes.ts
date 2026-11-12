@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { and, eq, max } from "drizzle-orm";
 import { db } from "~/db";
+import { appToday } from "~/lib/dates";
 import {
   APPLICATION_STATUSES,
   applications,
@@ -48,7 +49,7 @@ export function registerWriteTools(server: McpServer, userId: number): void {
         updatedAt: new Date().toISOString(),
       };
       if (status !== "wishlist" && !existing.appliedAt) {
-        patch.appliedAt = new Date().toISOString().slice(0, 10);
+        patch.appliedAt = appToday();
       }
       db.update(applications)
         .set(patch)

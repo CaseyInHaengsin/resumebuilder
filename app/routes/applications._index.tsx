@@ -29,6 +29,8 @@ import {
 } from "~/db/schema";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { requireUserId } from "~/lib/auth.server";
+import { appToday } from "~/lib/dates";
+import { followUpFlag } from "~/lib/follow-up";
 import { contactCountsByCompany } from "~/lib/network.server";
 import type { Route } from "./+types/applications._index";
 
@@ -104,32 +106,12 @@ export async function loader({ request }: Route.LoaderArgs) {
     .orderBy(asc(resumes.name))
     .all();
 
-  return { rows: rowsWithCounts, companies: allCompanies, resumes: allResumes };
-}
-
-// ── Follow-up heuristic ──
-const DAYS_STALE = 14;
-
-function daysSince(isoDate: string | null): number | null {
-  if (!isoDate) return null;
-  const then = Date.parse(isoDate);
-  if (!Number.isFinite(then)) return null;
-  return Math.floor((Date.now() - then) / (1000 * 60 * 60 * 24));
-}
-
-type Flag = { kind: "overdue" | "stale"; days: number } | null;
-function followUpFlag(row: Row): Flag {
-  // overdue: nextStepAt is in the past
-  if (row.nextStepAt) {
-    const d = daysSince(row.nextStepAt);
-    if (d !== null && d > 0) return { kind: "overdue", days: d };
-  }
-  // stale: applied but no contact in N days
-  if (row.status === "applied" && row.appliedAt && !row.lastContactAt) {
-    const d = daysSince(row.appliedAt);
-    if (d !== null && d >= DAYS_STALE) return { kind: "stale", days: d };
-  }
-  return null;
+  return {
+    rows: rowsWithCounts,
+    companies: allCompanies,
+    resumes: allResumes,
+    today: appToday(),
+  };
 }
 
 const STATUS_META: Record<
@@ -173,7 +155,7 @@ const STATUS_META: Record<
 };
 
 export default function ApplicationsIndex() {
-  const { rows, companies, resumes } = useLoaderData<typeof loader>();
+  const { rows, companies, resumes, today } = useLoaderData<typeof loader>();
   const [params, setParams] = useSearchParams();
   const view = (params.get("view") as "kanban" | "list") ?? "kanban";
   const companyFilter = params.get("company") ?? "";
@@ -185,12 +167,12 @@ export default function ApplicationsIndex() {
       list = list.filter(
         (r) => String(r.companyId ?? "") === companyFilter,
       );
-    if (followUpOnly) list = list.filter((r) => followUpFlag(r) !== null);
+    if (followUpOnly) list = list.filter((r) => followUpFlag(r, today) !== null);
     return list;
-  }, [rows, companyFilter, followUpOnly]);
+  }, [rows, companyFilter, followUpOnly, today]);
 
   const followUpCount = rows.reduce(
-    (n, r) => (followUpFlag(r) ? n + 1 : n),
+    (n, r) => (followUpFlag(r, today) ? n + 1 : n),
     0,
   );
 
@@ -283,9 +265,9 @@ export default function ApplicationsIndex() {
 
       <div className="mt-4">
         {view === "kanban" ? (
-          <KanbanView rows={filtered} />
+          <KanbanView rows={filtered} today={today} />
         ) : (
-          <ListView rows={filtered} />
+          <ListView rows={filtered} today={today} />
         )}
       </div>
     </div>
@@ -402,7 +384,7 @@ function QuickAdd({
   );
 }
 
-function KanbanView({ rows }: { rows: Row[] }) {
+function KanbanView({ rows, today }: { rows: Row[]; today: string }) {
   const fetcher = useFetcher();
   const [boardRows, setBoardRows] = useState(rows);
   const sensors = useSensors(
@@ -452,7 +434,7 @@ function KanbanView({ rows }: { rows: Row[] }) {
     >
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {columns.map(({ status, rows }) => (
-          <KanbanColumn key={status} status={status} rows={rows} />
+          <KanbanColumn key={status} status={status} rows={rows} today={today} />
         ))}
       </div>
     </DndContext>
@@ -462,9 +444,11 @@ function KanbanView({ rows }: { rows: Row[] }) {
 function KanbanColumn({
   status,
   rows,
+  today,
 }: {
   status: ApplicationStatus;
   rows: Row[];
+  today: string;
 }) {
   const meta = STATUS_META[status];
   const { isOver, setNodeRef } = useDroppable({ id: status });
@@ -488,7 +472,7 @@ function KanbanColumn({
       </div>
       <div className="space-y-2 flex-1">
         {rows.map((r) => (
-          <Card key={r.id} row={r} />
+          <Card key={r.id} row={r} today={today} />
         ))}
         {rows.length === 0 && (
           <p className="text-xs text-gray-400 dark:text-gray-600 px-1 italic">
@@ -500,8 +484,8 @@ function KanbanColumn({
   );
 }
 
-function Card({ row }: { row: Row }) {
-  const flag = followUpFlag(row);
+function Card({ row, today }: { row: Row; today: string }) {
+  const flag = followUpFlag(row, today);
   const fetcher = useFetcher();
   const optimisticStatus =
     (fetcher.formData?.get("status") as ApplicationStatus | null) ??
@@ -607,7 +591,7 @@ function Card({ row }: { row: Row }) {
   );
 }
 
-function ListView({ rows }: { rows: Row[] }) {
+function ListView({ rows, today }: { rows: Row[]; today: string }) {
   if (rows.length === 0) {
     return (
       <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-12">
@@ -631,7 +615,7 @@ function ListView({ rows }: { rows: Row[] }) {
         </thead>
         <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
           {rows.map((r) => {
-            const flag = followUpFlag(r);
+            const flag = followUpFlag(r, today);
             const meta = STATUS_META[r.status];
             return (
               <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">

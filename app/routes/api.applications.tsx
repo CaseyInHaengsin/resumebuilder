@@ -7,6 +7,7 @@ import {
 } from "~/db/schema";
 import { and, eq } from "drizzle-orm";
 import { requireUserId } from "~/lib/auth.server";
+import { appToday } from "~/lib/dates";
 import type { Route } from "./+types/api.applications";
 
 function isStatus(s: unknown): s is ApplicationStatus {
@@ -41,7 +42,7 @@ export async function action({ request }: Route.ActionArgs) {
     const status = isStatus(statusRaw) ? statusRaw : "applied";
     const appliedAt =
       strOrNull(form, "appliedAt") ??
-      (status === "wishlist" ? null : new Date().toISOString().slice(0, 10));
+      (status === "wishlist" ? null : appToday());
     const now = new Date().toISOString();
     const inserted = db
       .insert(applications)
@@ -117,7 +118,7 @@ export async function action({ request }: Route.ActionArgs) {
         )
         .get();
       if (row && !row.appliedAt) {
-        patch.appliedAt = new Date().toISOString().slice(0, 10);
+        patch.appliedAt = appToday();
       }
     }
     db.update(applications)

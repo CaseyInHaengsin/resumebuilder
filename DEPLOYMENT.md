@@ -94,6 +94,7 @@ Set these in the Portainer stack `environment:` block.
 | `SESSION_SECRET` | yes | Cookie signing key. `openssl rand -hex 32`. |
 | `COOKIE_SECURE` | no | `"true"` once HTTPS fronts the app. |
 | `ALLOW_SIGNUP` | no | Defaults to off in production. `"true"` to open registration. |
+| `APP_TIMEZONE` | no | IANA zone, e.g. `America/Denver`. Decides what "today" is for default applied dates and follow-up flags. Defaults to the server's own zone when unset (UTC in most containers). |
 
 ### Why `PUBLIC_URL` is not optional
 
