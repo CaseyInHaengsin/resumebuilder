@@ -86,6 +86,13 @@ export const longResume: ResumeData = {
   })),
 };
 
+/** Short enough to fit on one page in every template. */
+export const shortResume: ResumeData = {
+  ...sampleResume,
+  jobs: sampleResume.jobs.slice(0, 1),
+  projects: [],
+};
+
 export async function renderResume(
   templateId: TemplateId,
   data: ResumeData,
@@ -190,4 +197,48 @@ export async function inspectPdf(buffer: Buffer): Promise<PdfInspection> {
     },
     links,
   };
+}
+
+/** Removes all whitespace, so text can be compared regardless of line wrapping. */
+export function squash(text: string): string {
+  return text.replace(/\s+/g, "");
+}
+
+export interface PdfTextIndex {
+  /** All text of the document in reading order, with whitespace removed. */
+  text: string;
+  /** pageOf[i] is the 1-based page number of text[i]. */
+  pageOf: number[];
+}
+
+export function indexPdfText(pdf: PdfInspection): PdfTextIndex {
+  let text = "";
+  const pageOf: number[] = [];
+  pdf.textItemsByPage.forEach((items, p) => {
+    for (const item of items) {
+      const s = squash(item.str);
+      text += s;
+      for (let i = 0; i < s.length; i++) pageOf.push(p + 1);
+    }
+  });
+  return { text, pageOf };
+}
+
+export interface PdfTextMatch {
+  start: number;
+  end: number;
+  /** Distinct pages the match touches, in order. One entry means it is not split. */
+  pages: number[];
+}
+
+/** Every occurrence of `needle` (whitespace-insensitive) in the document. */
+export function findInPdf(index: PdfTextIndex, needle: string): PdfTextMatch[] {
+  const n = squash(needle);
+  const matches: PdfTextMatch[] = [];
+  if (!n) return matches;
+  for (let at = index.text.indexOf(n); at !== -1; at = index.text.indexOf(n, at + 1)) {
+    const pages = [...new Set(index.pageOf.slice(at, at + n.length))];
+    matches.push({ start: at, end: at + n.length, pages });
+  }
+  return matches;
 }

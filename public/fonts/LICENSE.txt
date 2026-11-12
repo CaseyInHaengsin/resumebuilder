@@ -1,0 +1,8 @@
+Inter (c) The Inter Project Authors (https://github.com/rsms/inter)
+Lora (c) The Lora Project Authors (https://github.com/cyrealtype/Lora-Cyrillic)
+
+Both families are licensed under the SIL Open Font License, Version 1.1
+(https://openfontlicense.org).
+
+Source: Google Fonts (https://fonts.google.com), static TTF instances downloaded
+via the fonts.googleapis.com CSS API.
