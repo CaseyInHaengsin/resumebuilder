@@ -20,6 +20,8 @@ import {
   users,
 } from "~/db/schema";
 import { buildTechStackGraph } from "~/lib/techstack.server";
+import { buildResumeData } from "~/lib/resume-data";
+import { analyzeCoverage, type LibraryItem } from "~/lib/keywords";
 
 function toJsonContent(data: unknown) {
   return {
@@ -314,6 +316,97 @@ function parentBelongsToUser(
   return !!row;
 }
 
+/** Keyword coverage of one resume against one application's posting, or an error message. */
+function keywordCoverage(userId: number, resumeId: number, applicationId: number) {
+  const resume = db
+    .select()
+    .from(resumes)
+    .where(and(eq(resumes.id, resumeId), eq(resumes.userId, userId)))
+    .get();
+  if (!resume) return { error: `Resume ${resumeId} not found` };
+  const application = db
+    .select()
+    .from(applications)
+    .where(and(eq(applications.id, applicationId), eq(applications.userId, userId)))
+    .get();
+  if (!application) return { error: `Application ${applicationId} not found` };
+  const description = application.jobDescription ?? "";
+  if (!description.trim()) {
+    return {
+      error: `Application ${applicationId} has no job description to analyze. Store the posting on the application first.`,
+    };
+  }
+
+  const linked = <T extends { sortOrder: number; id: number }>(rows: T[]) =>
+    [...rows].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+  const selectedJobIds = linked(
+    db.select().from(resumeJobs).where(eq(resumeJobs.resumeId, resumeId)).all(),
+  ).map((r) => r.jobId);
+  const selectedProjectIds = linked(
+    db.select().from(resumeProjects).where(eq(resumeProjects.resumeId, resumeId)).all(),
+  ).map((r) => r.projectId);
+  const selectedBulletIds = linked(
+    db.select().from(resumeBullets).where(eq(resumeBullets.resumeId, resumeId)).all(),
+  ).map((r) => r.bulletId);
+  const selectedSkillIds = linked(
+    db.select().from(resumeSkills).where(eq(resumeSkills.resumeId, resumeId)).all(),
+  ).map((r) => r.skillId);
+
+  const allBullets = selectUserBullets(userId);
+  const allSkills = selectUserSkills(userId);
+  const resumeData = buildResumeData({
+    resume,
+    contact: db.select().from(contact).where(eq(contact.userId, userId)).get(),
+    education: db.select().from(education).where(eq(education.userId, userId)).get(),
+    summaries: selectUserSummaries(userId),
+    jobs: selectUserJobs(userId),
+    projects: selectUserProjects(userId),
+    bullets: allBullets,
+    skills: allSkills,
+    selectedJobIds,
+    selectedProjectIds,
+    selectedBulletIds,
+    selectedSkillIds,
+  });
+
+  const skillText = (items: unknown) => (items as string[]).join(", ");
+  const library: LibraryItem[] = [
+    ...allBullets.map((b) => ({
+      kind: "bullet" as const,
+      id: b.id,
+      text: b.text,
+      selected: selectedBulletIds.includes(b.id),
+    })),
+    ...allSkills.map((s) => ({
+      kind: "skill" as const,
+      id: s.id,
+      text: skillText(s.items),
+      selected: selectedSkillIds.includes(s.id),
+    })),
+  ];
+  const vocabulary = [
+    ...allSkills.flatMap((s) => s.items as string[]),
+    ...allBullets.flatMap((b) => (b.tags as string[] | null) ?? []),
+  ];
+
+  const coverage = analyzeCoverage({ description, resume: resumeData, library, vocabulary });
+  const textOf = new Map(library.map((i) => [`${i.kind}:${i.id}`, i.text]));
+  return {
+    coverage: {
+      total: coverage.total,
+      coveredCount: coverage.coveredCount,
+      terms: coverage.terms.map((t) => ({
+        ...t,
+        suggestions: t.suggestions.map((s) => ({
+          kind: s.kind,
+          id: s.id,
+          text: textOf.get(`${s.kind}:${s.id}`) ?? "",
+        })),
+      })),
+    },
+  };
+}
+
 export function registerReadTools(server: McpServer, userId: number): void {
   server.registerTool(
     "get_profile",
@@ -557,6 +650,23 @@ export function registerReadTools(server: McpServer, userId: number): void {
         .orderBy(asc(bullets.sortOrder))
         .all();
       return toJsonContent(rows);
+    },
+  );
+
+  server.registerTool(
+    "get_keyword_coverage",
+    {
+      description:
+        "Returns which technical terms in an application's stored job description a resume covers. Each term (most frequent first) has a status: covered (the resume prints it), available (an unselected bullet or skill group in the library has it; up to 5 suggestions with kind, id and text, bullets first), or missing (nowhere in the library). Result: { total, coveredCount, terms }. Use it after creating or editing a resume for an application to see which posting terms are still uncovered, then add suggested items or tell the user what is missing. Plain term matching with aliases (JS/JavaScript, K8s/Kubernetes); no model is involved. The application must have a job description.",
+      inputSchema: {
+        resumeId: z.number().int().positive(),
+        applicationId: z.number().int().positive(),
+      },
+    },
+    async ({ resumeId, applicationId }) => {
+      const outcome = keywordCoverage(userId, resumeId, applicationId);
+      if ("error" in outcome) return notFound(outcome.error as string);
+      return toJsonContent(outcome.coverage);
     },
   );
 }

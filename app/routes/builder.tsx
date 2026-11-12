@@ -15,6 +15,7 @@ import {
   resumeBullets,
   resumeSkills,
   companies,
+  applications,
 } from "~/db/schema";
 import {
   DndContext,
@@ -33,13 +34,14 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { and, eq, asc } from "drizzle-orm";
+import { and, eq, asc, desc } from "drizzle-orm";
 import type { Route } from "./+types/builder";
 import type { ResumeData, TemplateId } from "~/components/pdf/ResumeDocument";
 import { TEMPLATES } from "~/components/pdf/ResumeDocument";
 import { requireUserId } from "~/lib/auth.server";
 import { buildResumeData } from "~/lib/resume-data";
 import { resumeFileName } from "~/lib/resume-file";
+import { CoveragePanel } from "~/components/builder/CoveragePanel";
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
@@ -96,6 +98,22 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     .where(eq(companies.userId, userId))
     .all();
 
+  const coverageTargets = db
+    .select({
+      applicationId: applications.id,
+      jobTitle: applications.jobTitle,
+      companyName: companies.name,
+      jobDescription: applications.jobDescription,
+    })
+    .from(applications)
+    .leftJoin(companies, eq(applications.companyId, companies.id))
+    .where(and(eq(applications.userId, userId), eq(applications.resumeId, resumeId)))
+    .orderBy(desc(applications.updatedAt), desc(applications.id))
+    .all()
+    .flatMap((a) =>
+      a.jobDescription?.trim() ? [{ ...a, jobDescription: a.jobDescription }] : [],
+    );
+
   // Current selections
   const selectedJobs = db
     .select()
@@ -130,6 +148,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     allSummaries,
     allSkills,
     allCompanies,
+    coverageTargets,
     contact: contactRow,
     education: educationRow,
     selectedJobIds: selectedJobs.map((r) => r.jobId),
@@ -661,6 +680,7 @@ export default function Builder() {
     allSummaries,
     allSkills,
     allCompanies,
+    coverageTargets,
     contact: contactRow,
     education: educationRow,
     selectedJobIds: loadedJobIds,
@@ -875,6 +895,18 @@ export default function Builder() {
             This resume is {pageCount} pages in the {templateName} template.
           </div>
         )}
+
+        <CoveragePanel
+          resumeId={resume.id}
+          targets={coverageTargets}
+          previewData={previewData}
+          bullets={allBullets}
+          skills={allSkills}
+          selectedBulletIds={selectedBulletIds}
+          selectedSkillIds={selectedSkillIds}
+          selectedJobIds={selectedJobIds}
+          selectedProjectIds={selectedProjectIds}
+        />
 
         {/* Contact override (anonymization) */}
         <ContactOverride

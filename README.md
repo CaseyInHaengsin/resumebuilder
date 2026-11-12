@@ -156,6 +156,7 @@ claude mcp add resume-builder \
 | `list_projects`, `get_project` | Side projects (get: with bullets) |
 | `list_companies`, `get_company` | Research targets |
 | `get_skills` | Skill groups |
+| `get_keyword_coverage` | Which job-posting terms a resume covers, has in the library unused, or lacks (`resumeId`, `applicationId`) |
 | `get_tech_stack` | Unified tech-keyword graph (nodes + co-occurrence links) |
 | `list_bullets_for` | Bullets for a specific job or project |
 | `update_application_status` | Move an application through the pipeline (wishlist/applied/interviewing/offer/accepted/rejected) |
