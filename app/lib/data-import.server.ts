@@ -76,7 +76,7 @@ export function importUserData(userId: number, payload: ExportPayload) {
       ): number => {
         const placeholders = cols.map(() => "?").join(", ");
         const stmt = sqlite.prepare(
-          `INSERT INTO ${table} (${cols.join(", ")}) VALUES (${placeholders})`,
+          `INSERT INTO ${table} (${cols.map((c) => `"${c}"`).join(", ")}) VALUES (${placeholders})`,
         );
         const info = stmt.run(...(values as never[]));
         return Number(info.lastInsertRowid);
@@ -316,6 +316,7 @@ export function importUserData(userId: number, payload: ExportPayload) {
             "next_step_at",
             "last_contact_at",
             "notes",
+            "job_description",
             "created_at",
             "updated_at",
           ],
@@ -334,6 +335,7 @@ export function importUserData(userId: number, payload: ExportPayload) {
             r.nextStepAt ?? null,
             r.lastContactAt ?? null,
             r.notes ?? null,
+            r.jobDescription ?? null,
             r.createdAt,
             r.updatedAt,
           ],

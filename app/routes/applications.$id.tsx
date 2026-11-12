@@ -193,6 +193,21 @@ export default function ApplicationDetail() {
           />
         </div>
 
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Job description
+          </label>
+          <textarea
+            name="jobDescription"
+            defaultValue={app.jobDescription ?? ""}
+            rows={12}
+            className="w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-white resize-y"
+          />
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Paste the posting. Used for keyword coverage and by Claude when tailoring a resume.
+          </p>
+        </div>
+
         <div className="flex justify-end gap-3 pt-2 border-t border-gray-200 dark:border-gray-800">
           <Link
             to="/applications"

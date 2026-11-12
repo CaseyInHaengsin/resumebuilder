@@ -61,6 +61,7 @@ export async function action({ request }: Route.ActionArgs) {
         nextStepAt: strOrNull(form, "nextStepAt"),
         lastContactAt: strOrNull(form, "lastContactAt"),
         notes: strOrNull(form, "notes"),
+        jobDescription: strOrNull(form, "jobDescription"),
         createdAt: now,
         updatedAt: now,
       })
@@ -90,6 +91,8 @@ export async function action({ request }: Route.ActionArgs) {
       notes: strOrNull(form, "notes"),
     };
     if (status) next.status = status;
+    if (form.has("jobDescription"))
+      next.jobDescription = strOrNull(form, "jobDescription");
     db.update(applications)
       .set(next)
       .where(

@@ -164,6 +164,7 @@ const EMPTY_IMPORT_TEMPLATE = {
         nextStepAt: null,
         lastContactAt: null,
         notes: null,
+        jobDescription: null,
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },

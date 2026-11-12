@@ -249,6 +249,7 @@ export const applications = sqliteTable("applications", {
   nextStepAt: text("next_step_at"),
   lastContactAt: text("last_contact_at"),
   notes: text("notes"),
+  jobDescription: text("job_description"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

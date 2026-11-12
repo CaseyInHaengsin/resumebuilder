@@ -350,6 +350,17 @@ function QuickAdd({
               className="rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 text-sm text-gray-900 dark:text-white"
             />
           </div>
+          <details className="text-sm">
+            <summary className="cursor-pointer text-xs text-gray-600 dark:text-gray-400">
+              Job description (optional)
+            </summary>
+            <textarea
+              name="jobDescription"
+              rows={6}
+              className="mt-2 w-full rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 text-sm text-gray-900 dark:text-white resize-y"
+              placeholder="Paste the posting"
+            />
+          </details>
           <div className="flex items-center justify-between">
             <select
               name="status"

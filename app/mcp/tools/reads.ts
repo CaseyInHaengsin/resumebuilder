@@ -110,6 +110,15 @@ function selectUserApplications(userId: number) {
     .all();
 }
 
+function withJobDescriptionFlag<T extends { jobDescription: string | null }>(
+  rows: T[],
+) {
+  return rows.map(({ jobDescription, ...rest }) => ({
+    ...rest,
+    hasJobDescription: jobDescription != null && jobDescription !== "",
+  }));
+}
+
 function composeResume(userId: number, resumeId: number) {
   const resume = db
     .select()
@@ -330,7 +339,7 @@ export function registerReadTools(server: McpServer, userId: number): void {
         bullets: selectUserBullets(userId),
         skills: selectUserSkills(userId),
         companies: selectUserCompanies(userId),
-        applications: selectUserApplications(userId),
+        applications: withJobDescriptionFlag(selectUserApplications(userId)),
         techStack: buildTechStackGraph(userId),
       };
       return toJsonContent(data);
@@ -413,7 +422,7 @@ export function registerReadTools(server: McpServer, userId: number): void {
     async ({ status }) => {
       const rows = selectUserApplications(userId);
       const filtered = status ? rows.filter((r) => r.status === status) : rows;
-      return toJsonContent(filtered);
+      return toJsonContent(withJobDescriptionFlag(filtered));
     },
   );
 
