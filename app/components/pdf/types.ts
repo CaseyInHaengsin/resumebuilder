@@ -37,7 +37,7 @@ export interface ResumeData {
   jobs: ResumeJob[];
   skills: ResumeSkillRow[];
   projects: ResumeProject[];
-  education: ResumeEducation;
+  education: ResumeEducation | null;
 }
 
 export type TemplateId = "modern" | "classic" | "minimal";

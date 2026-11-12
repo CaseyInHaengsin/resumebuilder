@@ -21,6 +21,8 @@ import type { Route } from "./+types/builder";
 import type { ResumeData, TemplateId } from "~/components/pdf/ResumeDocument";
 import { TEMPLATES } from "~/components/pdf/ResumeDocument";
 import { requireUserId } from "~/lib/auth.server";
+import { buildResumeData } from "~/lib/resume-data";
+import { resumeFileName } from "~/lib/resume-file";
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const userId = await requireUserId(request);
@@ -462,7 +464,7 @@ function ExportButton({ data, filename, template }: { data: ResumeData; filename
   return (
     <DownloadLink
       document={<DocComponent data={data} />}
-      fileName={`${filename}.pdf`}
+      fileName={filename}
       className="rounded bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700"
     >
       {({ loading }: { loading: boolean }) =>
@@ -497,93 +499,60 @@ export default function Builder() {
     );
 
   // Build the ResumeData for preview from current selections
-  const previewData: ResumeData = useMemo(() => {
-    const selectedSummary = resume.summaryId
-      ? allSummaries.find((s) => s.id === resume.summaryId)
-      : null;
-
-    const selectedJobsList = allJobs
-      .filter((j) => selectedJobIds.includes(j.id))
-      .map((job) => ({
-        title: job.title,
-        company: job.company,
-        dates: job.dates,
-        location: job.location,
-        bullets: getBullets("job", job.id)
-          .filter((b) => selectedBulletIds.includes(b.id))
-          .map((b) => b.text),
-      }));
-
-    const selectedProjectsList = allProjects
-      .filter((p) => selectedProjectIds.includes(p.id))
-      .map((project) => ({
-        name: project.name,
-        dates: project.dates,
-        tech: project.tech,
-        bullets: getBullets("project", project.id)
-          .filter((b) => selectedBulletIds.includes(b.id))
-          .map((b) => b.text),
-      }));
-
-    const selectedSkillsList = allSkills
-      .filter((s) => selectedSkillIds.includes(s.id))
-      .map((s) => ({
-        category: s.category,
-        items: s.items as string[],
-      }));
-
-    const effectiveContact = resume.useCustomContact
-      ? {
-          name: resume.contactName ?? "",
-          phone: resume.contactPhone,
-          email: resume.contactEmail ?? "",
-          linkedin: resume.contactLinkedin,
-          github: resume.contactGithub,
-        }
-      : contactRow
-        ? {
-            name: contactRow.name,
-            phone: contactRow.phone,
-            email: contactRow.email,
-            linkedin: contactRow.linkedin,
-            github: contactRow.github,
-          }
-        : { name: "Your Name", email: "email@example.com" };
-
-    return {
-      contact: effectiveContact,
-      summary: selectedSummary?.text || "",
-      jobs: selectedJobsList,
-      skills: selectedSkillsList,
-      projects: selectedProjectsList,
-      education: educationRow
-        ? {
-            school: educationRow.school,
-            degrees: educationRow.degrees as string[],
-          }
-        : { school: "University", degrees: [] },
-    };
-  }, [
-    resume,
-    allJobs,
-    allProjects,
-    allBullets,
-    allSummaries,
-    allSkills,
-    contactRow,
-    educationRow,
-    selectedJobIds,
-    selectedProjectIds,
-    selectedBulletIds,
-    selectedSkillIds,
-  ]);
+  const previewData: ResumeData = useMemo(
+    () =>
+      buildResumeData({
+        resume,
+        contact: contactRow,
+        education: educationRow,
+        summaries: allSummaries,
+        jobs: allJobs,
+        projects: allProjects,
+        bullets: allBullets,
+        skills: allSkills,
+        selectedJobIds,
+        selectedProjectIds,
+        selectedBulletIds,
+        selectedSkillIds,
+      }),
+    [
+      resume,
+      allJobs,
+      allProjects,
+      allBullets,
+      allSummaries,
+      allSkills,
+      contactRow,
+      educationRow,
+      selectedJobIds,
+      selectedProjectIds,
+      selectedBulletIds,
+      selectedSkillIds,
+    ],
+  );
 
   const fetcher = useFetcher();
 
-  // Page overflow warning
-  const totalBullets = previewData.jobs.reduce((n, j) => n + j.bullets.length, 0)
-    + previewData.projects.reduce((n, p) => n + p.bullets.length, 0);
-  const overflowWarning = totalBullets > 12;
+  // Real page count, computed in the browser only. Stale or failed runs are dropped.
+  const activeTemplate = (resume.template || "modern") as TemplateId;
+  const [pageCount, setPageCount] = useState(1);
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const { countResumePages } = await import("~/lib/pdf-pages");
+        const count = await countResumePages(activeTemplate, previewData);
+        if (!cancelled) setPageCount(count);
+      } catch {
+        if (!cancelled) setPageCount(1);
+      }
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [activeTemplate, previewData]);
+  const templateName = TEMPLATES.find((t) => t.id === activeTemplate)?.name ?? activeTemplate;
 
   return (
     <div className="flex gap-6 h-[calc(100vh-8rem)]">
@@ -612,7 +581,7 @@ export default function Builder() {
               Duplicate
             </button>
           </fetcher.Form>
-          <ExportButton data={previewData} filename={resume.name.toLowerCase().replace(/\s+/g, "-")} template={(resume.template || "modern") as TemplateId} />
+          <ExportButton data={previewData} filename={resumeFileName(previewData.contact.name)} template={(resume.template || "modern") as TemplateId} />
         </div>
 
         {/* Template picker */}
@@ -644,9 +613,9 @@ export default function Builder() {
           </div>
         </div>
 
-        {overflowWarning && (
+        {pageCount > 1 && (
           <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:border-amber-700 dark:text-amber-200">
-            {totalBullets} bullets selected — resume may exceed one page. Consider removing {totalBullets - 12} bullets.
+            This resume is {pageCount} pages in the {templateName} template.
           </div>
         )}
 

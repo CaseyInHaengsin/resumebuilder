@@ -1,5 +1,5 @@
 import React from "react";
-import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
+import { Document, Page, View, Text, Link, StyleSheet } from "@react-pdf/renderer";
 import { registerFonts } from "../fonts";
 import type { ResumeData } from "../types";
 
@@ -18,6 +18,7 @@ const styles = StyleSheet.create({
     color: "#000000",
     lineHeight: 1.3,
   },
+  contactLink: { color: "#444", textDecoration: "none" },
   header: { marginBottom: sp[1] },
   headerName: { fontSize: 18, fontWeight: "bold", color: "#000", lineHeight: 1.2, textAlign: "center" },
   headerContact: { fontSize: 9, color: "#444", marginTop: sp[1], textAlign: "center", lineHeight: 1.3 },
@@ -53,6 +54,10 @@ const styles = StyleSheet.create({
 // - A heading is grouped with the first row under it, and an entry header with its first bullet.
 // The groups are direct children of the page (no wrapping Section or entry View): react-pdf
 // squeezes an unbreakable group nested inside breakable Views instead of moving it to the next page.
+
+function withScheme(url: string) {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? url : `https://${url}`;
+}
 
 function SectionHeading({ title }: { title: string }) {
   return (
@@ -143,21 +148,26 @@ function projectParts(project: ResumeData["projects"][0]): EntryParts {
 
 export function ClassicTemplate({ data }: { data: ResumeData }) {
   const { contact, summary, jobs, skills, projects, education } = data;
-  const contactParts = [contact.phone, contact.email, contact.linkedin, contact.github].filter(Boolean);
+  const contactItems: React.ReactNode[] = [];
+  if (contact.phone) contactItems.push(<Text key="phone">{contact.phone}</Text>);
+  if (contact.email) contactItems.push(<Link key="email" src={`mailto:${contact.email}`} style={styles.contactLink}>{contact.email}</Link>);
+  if (contact.linkedin) contactItems.push(<Link key="linkedin" src={withScheme(contact.linkedin)} style={styles.contactLink}>{contact.linkedin}</Link>);
+  if (contact.github) contactItems.push(<Link key="github" src={withScheme(contact.github)} style={styles.contactLink}>{contact.github}</Link>);
+  const contactLine = contactItems.flatMap((item, i) => (i === 0 ? [item] : [<Text key={`sep${i}`}>{"  |  "}</Text>, item]));
 
   return (
-    <Document>
+    <Document title={`${contact.name} Resume`} author={contact.name}>
       <Page size="LETTER" style={styles.page}>
         <View style={styles.header}>
           <Text style={styles.headerName}>{contact.name}</Text>
-          <Text style={styles.headerContact}>{contactParts.join("  |  ")}</Text>
+          {contactLine.length > 0 ? <Text style={styles.headerContact}>{contactLine}</Text> : null}
         </View>
         <View style={styles.thinRule} />
         {summary ? <TextSection title="PROFESSIONAL SUMMARY" rows={[<Text key="summary" style={styles.summary}>{summary}</Text>]} /> : null}
         {jobs.length > 0 && <EntrySection title="WORK EXPERIENCE" entries={jobs.map(jobParts)} />}
         {skills.length > 0 && <TextSection title="TECHNICAL SKILLS" rows={skills.map((r, i) => <Text key={i} style={styles.inlineRow}><Text style={styles.inlineBold}>{r.category}</Text>{"  |  "}{r.items.join(", ")}</Text>)} />}
         {projects.length > 0 && <EntrySection title="PROJECTS" entries={projects.map(projectParts)} />}
-        <TextSection title="EDUCATION" rows={[<Text style={styles.inlineRow}><Text style={styles.inlineBold}>{education.school}</Text>{"  |  "}{education.degrees.join(", ")}</Text>]} />
+        {education ? <TextSection title="EDUCATION" rows={[<Text key="education" style={styles.inlineRow}><Text style={styles.inlineBold}>{education.school}</Text>{"  |  "}{education.degrees.join(", ")}</Text>]} /> : null}
       </Page>
     </Document>
   );
