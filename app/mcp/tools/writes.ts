@@ -12,13 +12,13 @@ import {
   skills,
 } from "~/db/schema";
 
-function jsonResult(data: unknown) {
+export function jsonResult(data: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(data) }],
   };
 }
 
-function errorResult(message: string) {
+export function errorResult(message: string) {
   return {
     isError: true,
     content: [{ type: "text" as const, text: message }],

@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerReadTools } from "./tools/reads";
 import { registerWriteTools } from "./tools/writes";
+import { registerTailoringTools } from "./tools/tailoring";
 
 /**
  * Creates a per-request MCP server instance bound to the authenticated userId.
@@ -16,6 +17,9 @@ export function createMcpServer(userId: number, scopes: string[]): McpServer {
     { capabilities: { tools: {} } },
   );
   if (scopes.includes("mcp:read")) registerReadTools(server, userId);
-  if (scopes.includes("mcp:write")) registerWriteTools(server, userId);
+  if (scopes.includes("mcp:write")) {
+    registerWriteTools(server, userId);
+    registerTailoringTools(server, userId);
+  }
   return server;
 }

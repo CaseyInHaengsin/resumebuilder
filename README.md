@@ -162,8 +162,14 @@ claude mcp add resume-builder \
 | `append_application_note` | Append a timestamped note to an application |
 | `add_skill` | Create a new skill group `(category, name, items)` |
 | `add_bullet` | Add a bullet to a job or project |
+| `create_company` | Find or create a company by name (case-insensitive), with optional research fields |
+| `create_application` | Create an application with the posting text; link a company by id or find-or-create it by name |
+| `update_application` | Change an application's details or link a resume (status and notes have their own tools) |
+| `add_summary` | Save a new summary paragraph `(name, text)` |
+| `create_resume` | Assemble a resume from library ids in page order; each bullet's job or project must be selected |
+| `update_resume` | Rename, retemplate, or replace any of a resume's ordered job/project/skill/bullet lists |
 
-All tools are scoped to the token-bearer's user. Writes are intentionally narrow — create/delete of resumes/jobs/projects is done via the web UI.
+All tools are scoped to the token-bearer's user. Writes are intentionally narrow — nothing is deleted through MCP, and jobs, projects and other library entries beyond bullets, skills and summaries are created in the web UI.
 
 ### Troubleshooting
 
