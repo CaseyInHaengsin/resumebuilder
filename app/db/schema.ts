@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 // ── Auth ──
@@ -294,6 +294,27 @@ export const applicationDocuments = sqliteTable(
     createdAt: text("created_at").notNull(),
   },
   (t) => [index("application_documents_application_idx").on(t.applicationId)],
+);
+
+// ── Cover letters (one per application; the PDF is rendered from this text) ──
+
+export const coverLetters = sqliteTable(
+  "cover_letters",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    applicationId: integer("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    recipient: text("recipient"),
+    /** Greeting through sign-off; paragraphs separated by blank lines, "\n" line endings. */
+    body: text("body").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("cover_letters_application_idx").on(t.applicationId)],
 );
 
 // ── Application timeline (dated things that happened or are scheduled) ──

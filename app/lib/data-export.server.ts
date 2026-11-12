@@ -6,6 +6,7 @@ import {
   bullets,
   companies,
   contact,
+  coverLetters,
   education,
   jobs,
   networkContacts,
@@ -43,6 +44,7 @@ const EMPTY_IMPORT_TEMPLATE = {
     applications: ["id", "jobTitle", "createdAt", "updatedAt"],
     networkContacts: ["id", "name", "createdAt", "updatedAt"],
     applicationEvents: ["applicationId", "type", "occurredAt", "createdAt"],
+    coverLetters: ["applicationId", "body", "createdAt", "updatedAt"],
   },
   allowedValues: {
     bullets: { parentType: ["job", "project"], priority: [1, 2, 3] },
@@ -215,6 +217,7 @@ function buildEmptyExportData() {
     applications: [],
     networkContacts: [],
     applicationEvents: [],
+    coverLetters: [],
   };
 }
 
@@ -250,6 +253,7 @@ export async function buildExportPayload(
     applicationsRows,
     networkContactsRows,
     applicationEventsRows,
+    coverLettersRows,
   ] = await Promise.all([
     db.select().from(contact).where(eq(contact.userId, userId)),
     db.select().from(education).where(eq(education.userId, userId)),
@@ -310,6 +314,7 @@ export async function buildExportPayload(
       .select()
       .from(applicationEvents)
       .where(eq(applicationEvents.userId, userId)),
+    db.select().from(coverLetters).where(eq(coverLetters.userId, userId)),
   ]);
 
   const data = {
@@ -329,6 +334,7 @@ export async function buildExportPayload(
     applications: stripUser(applicationsRows),
     networkContacts: stripUser(networkContactsRows),
     applicationEvents: stripUser(applicationEventsRows),
+    coverLetters: stripUser(coverLettersRows),
   };
 
   return {

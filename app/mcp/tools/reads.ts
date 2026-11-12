@@ -7,6 +7,7 @@ import {
   bullets,
   companies,
   contact,
+  coverLetters,
   education,
   jobs,
   projects,
@@ -262,7 +263,22 @@ function composeApplication(userId: number, applicationId: number) {
   const events = listApplicationEvents(userId, applicationId).map(
     ({ createdAt: _c, ...e }) => e,
   );
-  return { application: app, company: company ?? null, documents, events };
+  const letter = db
+    .select({
+      recipient: coverLetters.recipient,
+      body: coverLetters.body,
+      updatedAt: coverLetters.updatedAt,
+    })
+    .from(coverLetters)
+    .where(and(eq(coverLetters.applicationId, applicationId), eq(coverLetters.userId, userId)))
+    .get();
+  const coverLetter = letter
+    ? {
+        ...letter,
+        url: `${getPublicUrl()}/api/applications/${applicationId}/cover-letter.pdf`,
+      }
+    : null;
+  return { application: app, company: company ?? null, coverLetter, documents, events };
 }
 
 function composeJob(userId: number, jobId: number) {
@@ -537,7 +553,7 @@ export function registerReadTools(server: McpServer, userId: number): void {
     "get_application",
     {
       description:
-        "Returns a single application with its resolved company (if any) and its stored documents: PDF copies of what was sent, newest first, each with { id, kind ('resume' | 'cover_letter'), fileName, createdAt, url }. A url downloads the copy and needs the user to be signed in to the app in their browser. Also returns its timeline events, newest first: { id, type, occurredAt, title, body, networkContactId, contactName }; events dated after today are scheduled.",
+        "Returns a single application with its resolved company (if any), its cover letter ({ recipient, body, updatedAt, url } or null; the url is a PDF link that needs the user to be signed in) and its stored documents: PDF copies of what was sent, newest first, each with { id, kind ('resume' | 'cover_letter'), fileName, createdAt, url }. A url downloads the copy and needs the user to be signed in to the app in their browser. Also returns its timeline events, newest first: { id, type, occurredAt, title, body, networkContactId, contactName }; events dated after today are scheduled.",
       inputSchema: { id: z.number().int().positive() },
     },
     async ({ id }) => {

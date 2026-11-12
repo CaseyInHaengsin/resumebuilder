@@ -4,6 +4,7 @@ import { db } from "~/db";
 import {
   applications,
   companies,
+  coverLetters,
   networkContacts,
   resumes,
   APPLICATION_STATUSES,
@@ -46,8 +47,19 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     .all()
     .map((c) => ({ id: c.id, name: c.name, atCompany: app.companyId != null && c.companyId === app.companyId }))
     .sort((a, b) => Number(b.atCompany) - Number(a.atCompany));
+  const coverLetter =
+    db
+      .select({
+        recipient: coverLetters.recipient,
+        body: coverLetters.body,
+        updatedAt: coverLetters.updatedAt,
+      })
+      .from(coverLetters)
+      .where(and(eq(coverLetters.applicationId, id), eq(coverLetters.userId, userId)))
+      .get() ?? null;
   return {
     app,
+    coverLetter,
     companies: userCompanies,
     resumes: userResumes,
     documents: listApplicationDocuments(userId, id),
@@ -70,7 +82,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function ApplicationDetail() {
-  const { app, companies, resumes, documents, events, contacts, today, eventTypes } =
+  const { app, coverLetter, companies, resumes, documents, events, contacts, today, eventTypes } =
     useLoaderData<typeof loader>();
   return (
     <div className="max-w-3xl mx-auto space-y-4">
@@ -252,6 +264,8 @@ export default function ApplicationDetail() {
         today={today}
         eventTypes={eventTypes}
       />
+
+      <CoverLetterSection applicationId={app.id} coverLetter={coverLetter} />
 
       <DocumentsSection
         applicationId={app.id}
@@ -457,6 +471,126 @@ function DeleteEventButton({ id, label }: { id: number; label: string }) {
         {fetcher.state !== "idle" ? "Deleting..." : "Delete"}
       </ConfirmButton>
     </>
+  );
+}
+
+function CoverLetterSection({
+  applicationId,
+  coverLetter,
+}: {
+  applicationId: number;
+  coverLetter: { recipient: string | null; body: string; updatedAt: string } | null;
+}) {
+  const save = useFetcher<{ ok?: boolean }>();
+  const snapshot = useFetcher<{ ok?: boolean }>();
+  const remove = useFetcher();
+  const saving = save.state !== "idle";
+  const saveFailed = save.state === "idle" && save.data != null && !save.data.ok;
+  const snapshotting = snapshot.state !== "idle";
+  const snapshotFailed =
+    snapshot.state === "idle" && snapshot.data != null && !snapshot.data.ok;
+  const deleteFormId = "delete-cover-letter";
+  return (
+    <section className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-5 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Cover letter</h3>
+        {coverLetter && (
+          <div className="flex items-center gap-3">
+            <a
+              href={`/api/applications/${applicationId}/cover-letter.pdf`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              View PDF
+            </a>
+            <snapshot.Form method="post" action="/api/applications">
+              <input type="hidden" name="_action" value="snapshot_cover_letter" />
+              <input type="hidden" name="id" value={applicationId} />
+              <button
+                type="submit"
+                disabled={snapshotting}
+                className="rounded border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+              >
+                {snapshotting ? "Saving..." : "Save sent copy"}
+              </button>
+            </snapshot.Form>
+            <remove.Form
+              id={deleteFormId}
+              method="post"
+              action="/api/applications"
+              className="hidden"
+            >
+              <input type="hidden" name="_action" value="delete_cover_letter" />
+              <input type="hidden" name="id" value={applicationId} />
+            </remove.Form>
+            <ConfirmButton
+              formId={deleteFormId}
+              title="Delete cover letter?"
+              message="The letter text will be removed. Sent copies already saved stay in Documents."
+              className="text-sm text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
+            >
+              {remove.state !== "idle" ? "Deleting..." : "Delete"}
+            </ConfirmButton>
+          </div>
+        )}
+      </div>
+
+      {/* Keyed on the saved text so the fields reset after a delete or an edit made through Claude. */}
+      <save.Form
+        key={coverLetter ? `${coverLetter.updatedAt}` : "empty"}
+        method="post"
+        action="/api/applications"
+        className="space-y-3"
+      >
+        <input type="hidden" name="_action" value="save_cover_letter" />
+        <input type="hidden" name="id" value={applicationId} />
+        <div>
+          <label className={labelClass} htmlFor="cover-letter-recipient">Recipient</label>
+          <input
+            id="cover-letter-recipient"
+            type="text"
+            name="recipient"
+            defaultValue={coverLetter?.recipient ?? ""}
+            placeholder="Hiring Manager, Company"
+            className={inputClass}
+          />
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="cover-letter-body">Letter</label>
+          <textarea
+            id="cover-letter-body"
+            name="body"
+            rows={16}
+            defaultValue={coverLetter?.body ?? ""}
+            className={`${inputClass} resize-y`}
+          />
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Write the letter from greeting to sign-off. Your header and today's date are added to
+            the PDF. Claude can write this for you through the connector.
+          </p>
+        </div>
+        <div className="flex items-center justify-end gap-3">
+          {coverLetter && (
+            <span className="mr-auto text-xs text-gray-500 dark:text-gray-400">
+              Last saved {coverLetter.updatedAt.slice(0, 10)}
+            </span>
+          )}
+          {(saveFailed || snapshotFailed) && (
+            <p className="text-sm text-red-600 dark:text-red-400">
+              {saveFailed ? "Could not save the letter. It cannot be empty." : "Could not save the copy."}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </save.Form>
+    </section>
   );
 }
 

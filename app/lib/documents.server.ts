@@ -9,6 +9,7 @@ import {
   type ApplicationDocumentKind,
   type ApplicationStatus,
 } from "~/db/schema";
+import { renderCoverLetterPdf } from "~/lib/cover-letter.server";
 import { renderResumePdf } from "~/lib/resume-pdf.server";
 
 // Stored PDFs (sent copies of resumes and cover letters). DOCUMENTS_DIR lets
@@ -121,10 +122,43 @@ export async function snapshotResumeForApplication(
   return { id };
 }
 
+export type CoverLetterSnapshotResult = { id: number } | { error: "not_found" | "no_letter" };
+
+/**
+ * Renders the application's cover letter as it is now and stores the PDF with
+ * the application. Throws when the file cannot be written (no row is left
+ * behind).
+ */
+export async function snapshotCoverLetterForApplication(
+  userId: number,
+  applicationId: number,
+): Promise<CoverLetterSnapshotResult> {
+  const app = db
+    .select({ id: applications.id })
+    .from(applications)
+    .where(and(eq(applications.id, applicationId), eq(applications.userId, userId)))
+    .get();
+  if (!app) return { error: "not_found" };
+
+  const rendered = await renderCoverLetterPdf(userId, applicationId);
+  if (!rendered) return { error: "no_letter" };
+
+  const { id } = await storeDocument({
+    userId,
+    applicationId,
+    kind: "cover_letter",
+    fileName: rendered.fileName,
+    bytes: rendered.bytes,
+    pageCount: rendered.pageCount,
+  });
+  return { id };
+}
+
 /**
  * The automatic sent copy: when an application moves from wishlist to
- * applied, snapshot its linked resume. Never throws, so a failure here cannot
- * undo or fail the status change.
+ * applied, snapshot its linked resume and its cover letter, each on its own
+ * so one failing does not stop the other. Never throws, so a failure here
+ * cannot undo or fail the status change.
  */
 export async function snapshotOnApplied(
   userId: number,
@@ -137,6 +171,14 @@ export async function snapshotOnApplied(
     await snapshotResumeForApplication(userId, applicationId);
   } catch (err) {
     console.error(`[documents] automatic snapshot for application ${applicationId} failed:`, err);
+  }
+  try {
+    await snapshotCoverLetterForApplication(userId, applicationId);
+  } catch (err) {
+    console.error(
+      `[documents] automatic cover letter snapshot for application ${applicationId} failed:`,
+      err,
+    );
   }
 }
 

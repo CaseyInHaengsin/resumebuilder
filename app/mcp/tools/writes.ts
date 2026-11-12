@@ -18,6 +18,7 @@ import {
   applicationDocuments,
   applications,
   bullets,
+  coverLetters,
   jobs,
   projects,
   skills,
@@ -41,7 +42,7 @@ export function registerWriteTools(server: McpServer, userId: number): void {
     "update_application_status",
     {
       description:
-        "Updates the status of an application. Valid statuses: wishlist, applied, interviewing, offer, accepted, rejected. A real change also adds a 'status' event ('Moved to <Status>') to the application's timeline. If the status moves out of 'wishlist' and appliedAt is unset, appliedAt is backfilled with today's date. Moving from 'wishlist' to 'applied' also saves a PDF copy of the linked resume with the application (see get_application documents); if that copy cannot be made, the status still changes.",
+        "Updates the status of an application. Valid statuses: wishlist, applied, interviewing, offer, accepted, rejected. A real change also adds a 'status' event ('Moved to <Status>') to the application's timeline. If the status moves out of 'wishlist' and appliedAt is unset, appliedAt is backfilled with today's date. Moving from 'wishlist' to 'applied' also saves a PDF copy of the linked resume and of the cover letter (when there is one) with the application (see get_application documents); if that copy cannot be made, the status still changes.",
       inputSchema: {
         id: z.number().int().positive(),
         status: z.enum(APPLICATION_STATUSES),
@@ -111,6 +112,44 @@ export function registerWriteTools(server: McpServer, userId: number): void {
         id: result.id,
         fileName: row?.fileName,
         url: `${getPublicUrl()}/documents/${result.id}`,
+      });
+    },
+  );
+
+  server.registerTool(
+    "save_cover_letter",
+    {
+      description:
+        "Stores the full cover letter text, from greeting through sign-off, for one application, replacing any existing letter. Separate paragraphs with blank lines. The app adds the sender's header and the date itself when it renders the PDF, so the body should not repeat the sender's contact block or the date. 'recipient' is optional (for example 'Hiring Manager, Company') and is printed under the date. Returns { applicationId, updatedAt, url }; the url is a PDF link the signed-in user can open in their browser (it needs the user to be signed in to the app, so you cannot fetch it yourself). get_application returns the stored letter.",
+      inputSchema: {
+        applicationId: z.number().int().positive(),
+        body: z.string(),
+        recipient: z.string().optional(),
+      },
+    },
+    async ({ applicationId, body, recipient }) => {
+      const text = body.replace(/\r\n?/g, "\n").trim();
+      if (!text) return errorResult("The cover letter body cannot be empty");
+      const owned = db
+        .select({ id: applications.id })
+        .from(applications)
+        .where(and(eq(applications.id, applicationId), eq(applications.userId, userId)))
+        .get();
+      if (!owned) return errorResult(`Application ${applicationId} not found`);
+
+      const to = recipient?.trim() || null;
+      const now = new Date().toISOString();
+      db.insert(coverLetters)
+        .values({ userId, applicationId, recipient: to, body: text, createdAt: now, updatedAt: now })
+        .onConflictDoUpdate({
+          target: coverLetters.applicationId,
+          set: { recipient: to, body: text, updatedAt: now },
+        })
+        .run();
+      return jsonResult({
+        applicationId,
+        updatedAt: now,
+        url: `${getPublicUrl()}/api/applications/${applicationId}/cover-letter.pdf`,
       });
     },
   );

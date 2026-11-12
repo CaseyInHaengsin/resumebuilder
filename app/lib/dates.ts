@@ -33,3 +33,26 @@ function dayNumber(value: string): number {
   if (!m) return NaN;
   return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 }
+
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** "2026-11-11" -> "November 11, 2026". Pure string work, so no time zone can move the day. */
+export function formatLongDate(ymd: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd);
+  const month = m ? MONTH_NAMES[Number(m[2]) - 1] : undefined;
+  if (!m || !month) return ymd;
+  return `${month} ${Number(m[3])}, ${m[1]}`;
+}

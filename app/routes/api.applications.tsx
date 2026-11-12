@@ -3,6 +3,7 @@ import { db } from "~/db";
 import {
   applications,
   companies,
+  coverLetters,
   resumes,
   APPLICATION_STATUSES,
   type ApplicationStatus,
@@ -13,6 +14,7 @@ import { appToday } from "~/lib/dates";
 import {
   deleteApplication,
   deleteDocument,
+  snapshotCoverLetterForApplication,
   snapshotOnApplied,
   snapshotResumeForApplication,
 } from "~/lib/documents.server";
@@ -228,6 +230,60 @@ export async function action({ request }: Route.ActionArgs) {
       return result.error === "not_found"
         ? new Response("Not found", { status: 404 })
         : new Response("Link a resume to this application first", { status: 400 });
+    }
+    return { ok: true, documentId: result.id };
+  }
+
+  if (
+    _action === "save_cover_letter" ||
+    _action === "delete_cover_letter" ||
+    _action === "snapshot_cover_letter"
+  ) {
+    const id = Number(form.get("id"));
+    if (!Number.isInteger(id) || id <= 0)
+      return new Response("Not found", { status: 404 });
+    const owned = db
+      .select({ id: applications.id })
+      .from(applications)
+      .where(and(eq(applications.id, id), eq(applications.userId, userId)))
+      .get();
+    if (!owned) return new Response("Not found", { status: 404 });
+
+    if (_action === "save_cover_letter") {
+      const rawBody = form.get("body");
+      const body =
+        typeof rawBody === "string" ? rawBody.replace(/\r\n?/g, "\n").trim() : "";
+      if (!body) return new Response("The letter cannot be empty", { status: 400 });
+      const recipient = strOrNull(form, "recipient");
+      const now = new Date().toISOString();
+      db.insert(coverLetters)
+        .values({ userId, applicationId: id, recipient, body, createdAt: now, updatedAt: now })
+        .onConflictDoUpdate({
+          target: coverLetters.applicationId,
+          set: { recipient, body, updatedAt: now },
+        })
+        .run();
+      return { ok: true };
+    }
+
+    if (_action === "delete_cover_letter") {
+      db.delete(coverLetters)
+        .where(and(eq(coverLetters.applicationId, id), eq(coverLetters.userId, userId)))
+        .run();
+      return { ok: true };
+    }
+
+    let result;
+    try {
+      result = await snapshotCoverLetterForApplication(userId, id);
+    } catch (err) {
+      console.error(`[documents] cover letter snapshot for application ${id} failed:`, err);
+      return new Response("Could not save the PDF", { status: 500 });
+    }
+    if ("error" in result) {
+      return result.error === "not_found"
+        ? new Response("Not found", { status: 404 })
+        : new Response("Write a cover letter first", { status: 400 });
     }
     return { ok: true, documentId: result.id };
   }

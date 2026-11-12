@@ -56,6 +56,10 @@ export default [
     route("applications/:id", "routes/applications.$id.tsx"),
     route("network", "routes/network.tsx"),
     route("api/applications", "routes/api.applications.tsx"),
+    route(
+      "api/applications/:id/cover-letter.pdf",
+      "routes/api.applications.$id.cover-letter.pdf.tsx",
+    ),
     route("uploads/:file", "routes/uploads.$file.tsx"),
     route("documents/:id", "routes/documents.$id.tsx"),
     route("techstack", "routes/techstack.tsx"),

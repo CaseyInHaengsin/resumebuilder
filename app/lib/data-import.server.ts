@@ -405,6 +405,18 @@ export function importUserData(userId: number, payload: ExportPayload) {
           ],
         );
       }
+
+      // 8. cover letters — reference applications. Backups taken before cover
+      // letters existed have no `coverLetters` key.
+      for (const r of d.coverLetters ?? []) {
+        const aid = idMap.applications.get(r.applicationId);
+        if (aid == null) continue;
+        insert(
+          "cover_letters",
+          ["user_id", "application_id", "recipient", "body", "created_at", "updated_at"],
+          [userId, aid, r.recipient ?? null, r.body, r.createdAt, r.updatedAt],
+        );
+      }
     });
 
     tx();

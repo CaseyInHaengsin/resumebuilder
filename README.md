@@ -153,7 +153,7 @@ claude mcp add resume-builder \
 | `get_contact`, `get_education` | Singleton entities |
 | `list_summaries` | Resume summary paragraphs |
 | `list_resumes`, `get_resume` | Resumes (get: composed with selected jobs/projects/bullets/skills/summary/company) |
-| `list_applications`, `get_application` | Application pipeline (list: optional `status` filter; get: with company, saved PDF copies and timeline events) |
+| `list_applications`, `get_application` | Application pipeline (list: optional `status` filter; get: with company, cover letter, saved PDF copies and timeline events) |
 | `list_jobs`, `get_job` | Work history (get: with bullets) |
 | `list_projects`, `get_project` | Side projects (get: with bullets) |
 | `list_companies`, `get_company` | Research targets |
@@ -165,6 +165,7 @@ claude mcp add resume-builder \
 | `update_application_status` | Move an application through the pipeline (wishlist/applied/interviewing/offer/accepted/rejected); wishlist to applied also saves a copy of the linked resume |
 | `snapshot_application_resume` | Save a frozen PDF copy of the application's linked resume ("what I sent"); `get_application` lists saved copies with download links |
 | `add_application_event` | Add a dated event (email, call, interview, offer, rejection, follow-up, note, other) to an application's timeline; moves `lastContactAt` and `nextStepAt` forward. `get_application` lists events |
+| `save_cover_letter` | Store the cover letter for an application (greeting through sign-off, replaces any existing letter); the app adds the header and date, and returns a PDF link that opens where the user is signed in. `get_application` returns the letter; wishlist to applied also saves a copy of it |
 | `append_application_note` | Append a timestamped note to an application's free-text notes (undated; dated things go in `add_application_event`) |
 | `add_skill` | Create a new skill group `(category, name, items)` |
 | `add_bullet` | Add a bullet to a job or project |
