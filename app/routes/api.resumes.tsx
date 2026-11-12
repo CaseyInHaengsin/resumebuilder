@@ -7,7 +7,14 @@ import {
   resumeBullets,
   resumeSkills,
   contact,
+  jobs,
+  projects,
+  bullets,
+  skills,
+  summaries,
+  companies,
 } from "~/db/schema";
+import { TEMPLATES } from "~/components/pdf/types";
 import { and, eq } from "drizzle-orm";
 import { requireUserId } from "~/lib/auth.server";
 import type { Route } from "./+types/api.resumes";
@@ -20,6 +27,27 @@ function ownedResume(id: number, userId: number) {
     .where(and(eq(resumes.id, id), eq(resumes.userId, userId)))
     .get();
 }
+
+/** True iff the row with this id in an owned-by-user table belongs to userId. */
+function owns(
+  table:
+    | typeof jobs
+    | typeof projects
+    | typeof bullets
+    | typeof skills
+    | typeof summaries
+    | typeof companies,
+  id: number,
+  userId: number,
+) {
+  return !!db
+    .select({ id: table.id })
+    .from(table)
+    .where(and(eq(table.id, id), eq(table.userId, userId)))
+    .get();
+}
+
+const NOT_FOUND = () => new Response("Not found", { status: 404 });
 
 export async function action({ request }: Route.ActionArgs) {
   const userId = await requireUserId(request);
@@ -146,6 +174,7 @@ export async function action({ request }: Route.ActionArgs) {
     if (!ownedResume(resumeId, userId))
       return new Response("Not found", { status: 404 });
     const jobId = Number(form.get("jobId"));
+    if (!owns(jobs, jobId, userId)) return NOT_FOUND();
     const existing = db
       .select()
       .from(resumeJobs)
@@ -175,6 +204,7 @@ export async function action({ request }: Route.ActionArgs) {
     if (!ownedResume(resumeId, userId))
       return new Response("Not found", { status: 404 });
     const projectId = Number(form.get("projectId"));
+    if (!owns(projects, projectId, userId)) return NOT_FOUND();
     const existing = db
       .select()
       .from(resumeProjects)
@@ -206,6 +236,7 @@ export async function action({ request }: Route.ActionArgs) {
     if (!ownedResume(resumeId, userId))
       return new Response("Not found", { status: 404 });
     const bulletId = Number(form.get("bulletId"));
+    if (!owns(bullets, bulletId, userId)) return NOT_FOUND();
     const existing = db
       .select()
       .from(resumeBullets)
@@ -237,6 +268,7 @@ export async function action({ request }: Route.ActionArgs) {
     if (!ownedResume(resumeId, userId))
       return new Response("Not found", { status: 404 });
     const skillId = Number(form.get("skillId"));
+    if (!owns(skills, skillId, userId)) return NOT_FOUND();
     const existing = db
       .select()
       .from(resumeSkills)
@@ -263,7 +295,10 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (_action === "set_template") {
     const resumeId = Number(form.get("resumeId"));
+    if (!ownedResume(resumeId, userId)) return NOT_FOUND();
     const template = form.get("template") as string;
+    if (!TEMPLATES.some((t) => t.id === template))
+      return new Response("Unknown template", { status: 400 });
     db.update(resumes)
       .set({ template, updatedAt: new Date().toISOString() })
       .where(and(eq(resumes.id, resumeId), eq(resumes.userId, userId)))
@@ -275,6 +310,9 @@ export async function action({ request }: Route.ActionArgs) {
     const summaryId = form.get("summaryId")
       ? Number(form.get("summaryId"))
       : null;
+    if (!ownedResume(resumeId, userId)) return NOT_FOUND();
+    if (summaryId !== null && !owns(summaries, summaryId, userId))
+      return NOT_FOUND();
     db.update(resumes)
       .set({ summaryId, updatedAt: new Date().toISOString() })
       .where(and(eq(resumes.id, resumeId), eq(resumes.userId, userId)))
@@ -285,6 +323,9 @@ export async function action({ request }: Route.ActionArgs) {
     const resumeId = Number(form.get("resumeId"));
     const raw = form.get("companyId");
     const companyId = raw ? Number(raw) : null;
+    if (!ownedResume(resumeId, userId)) return NOT_FOUND();
+    if (companyId !== null && !owns(companies, companyId, userId))
+      return NOT_FOUND();
     db.update(resumes)
       .set({ companyId, updatedAt: new Date().toISOString() })
       .where(and(eq(resumes.id, resumeId), eq(resumes.userId, userId)))
@@ -340,6 +381,7 @@ export async function action({ request }: Route.ActionArgs) {
     ]);
     if (!allowed.has(field))
       return new Response("Bad field", { status: 400 });
+    if (!ownedResume(resumeId, userId)) return NOT_FOUND();
     db.update(resumes)
       .set({ [field]: value, updatedAt: new Date().toISOString() })
       .where(and(eq(resumes.id, resumeId), eq(resumes.userId, userId)))

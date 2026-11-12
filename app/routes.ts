@@ -67,6 +67,5 @@ export default [
     route("api/summaries", "routes/api.summaries.tsx"),
     route("api/skills", "routes/api.skills.tsx"),
     route("api/resumes", "routes/api.resumes.tsx"),
-    route("pdf-test", "routes/pdf-test.tsx"),
   ]),
 ] satisfies RouteConfig;

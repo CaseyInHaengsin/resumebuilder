@@ -22,7 +22,7 @@ const sessionStorage = createCookieSessionStorage({
     secure: process.env.COOKIE_SECURE
       ? process.env.COOKIE_SECURE === "true"
       : process.env.NODE_ENV === "production",
-    maxAge: 60 * 60 * 24, // 24h
+    maxAge: 60 * 60 * 24 * 30, // 30 days
   },
 });
 

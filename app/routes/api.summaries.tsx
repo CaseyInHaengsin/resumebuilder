@@ -1,5 +1,5 @@
 import { db } from "~/db";
-import { summaries } from "~/db/schema";
+import { summaries, resumes } from "~/db/schema";
 import { and, eq } from "drizzle-orm";
 import { requireUserId } from "~/lib/auth.server";
 import type { Route } from "./+types/api.summaries";
@@ -28,9 +28,15 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (_action === "delete") {
     const id = Number(form.get("id"));
-    db.delete(summaries)
-      .where(and(eq(summaries.id, id), eq(summaries.userId, userId)))
-      .run();
+    db.transaction((tx) => {
+      tx.update(resumes)
+        .set({ summaryId: null })
+        .where(and(eq(resumes.summaryId, id), eq(resumes.userId, userId)))
+        .run();
+      tx.delete(summaries)
+        .where(and(eq(summaries.id, id), eq(summaries.userId, userId)))
+        .run();
+    });
   }
 
   return null;
