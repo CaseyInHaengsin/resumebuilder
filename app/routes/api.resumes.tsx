@@ -15,7 +15,7 @@ import {
   companies,
 } from "~/db/schema";
 import { TEMPLATES } from "~/components/pdf/types";
-import { and, eq } from "drizzle-orm";
+import { and, eq, max } from "drizzle-orm";
 import { requireUserId } from "~/lib/auth.server";
 import type { Route } from "./+types/api.resumes";
 
@@ -46,6 +46,30 @@ function owns(
     .where(and(eq(table.id, id), eq(table.userId, userId)))
     .get();
 }
+
+/** One past the highest sortOrder in this resume's join rows of one kind. */
+function nextSortOrder(
+  table:
+    | typeof resumeJobs
+    | typeof resumeProjects
+    | typeof resumeBullets
+    | typeof resumeSkills,
+  resumeId: number,
+) {
+  const row = db
+    .select({ top: max(table.sortOrder) })
+    .from(table)
+    .where(eq(table.resumeId, resumeId))
+    .get();
+  return (row?.top ?? -1) + 1;
+}
+
+const REORDER_KINDS = {
+  jobs: { table: resumeJobs, column: resumeJobs.jobId },
+  projects: { table: resumeProjects, column: resumeProjects.projectId },
+  bullets: { table: resumeBullets, column: resumeBullets.bulletId },
+  skills: { table: resumeSkills, column: resumeSkills.skillId },
+} as const;
 
 const NOT_FOUND = () => new Response("Not found", { status: 404 });
 
@@ -184,13 +208,9 @@ export async function action({ request }: Route.ActionArgs) {
     if (existing) {
       db.delete(resumeJobs).where(eq(resumeJobs.id, existing.id)).run();
     } else {
-      const count = db
-        .select()
-        .from(resumeJobs)
-        .where(eq(resumeJobs.resumeId, resumeId))
-        .all().length;
+      const next = nextSortOrder(resumeJobs, resumeId);
       db.insert(resumeJobs)
-        .values({ resumeId, jobId, sortOrder: count })
+        .values({ resumeId, jobId, sortOrder: next })
         .run();
     }
     db.update(resumes)
@@ -216,13 +236,9 @@ export async function action({ request }: Route.ActionArgs) {
         .where(eq(resumeProjects.id, existing.id))
         .run();
     } else {
-      const count = db
-        .select()
-        .from(resumeProjects)
-        .where(eq(resumeProjects.resumeId, resumeId))
-        .all().length;
+      const next = nextSortOrder(resumeProjects, resumeId);
       db.insert(resumeProjects)
-        .values({ resumeId, projectId, sortOrder: count })
+        .values({ resumeId, projectId, sortOrder: next })
         .run();
     }
     db.update(resumes)
@@ -248,13 +264,9 @@ export async function action({ request }: Route.ActionArgs) {
         .where(eq(resumeBullets.id, existing.id))
         .run();
     } else {
-      const count = db
-        .select()
-        .from(resumeBullets)
-        .where(eq(resumeBullets.resumeId, resumeId))
-        .all().length;
+      const next = nextSortOrder(resumeBullets, resumeId);
       db.insert(resumeBullets)
-        .values({ resumeId, bulletId, sortOrder: count })
+        .values({ resumeId, bulletId, sortOrder: next })
         .run();
     }
     db.update(resumes)
@@ -278,19 +290,54 @@ export async function action({ request }: Route.ActionArgs) {
     if (existing) {
       db.delete(resumeSkills).where(eq(resumeSkills.id, existing.id)).run();
     } else {
-      const count = db
-        .select()
-        .from(resumeSkills)
-        .where(eq(resumeSkills.resumeId, resumeId))
-        .all().length;
+      const next = nextSortOrder(resumeSkills, resumeId);
       db.insert(resumeSkills)
-        .values({ resumeId, skillId, sortOrder: count })
+        .values({ resumeId, skillId, sortOrder: next })
         .run();
     }
     db.update(resumes)
       .set({ updatedAt: new Date().toISOString() })
       .where(and(eq(resumes.id, resumeId), eq(resumes.userId, userId)))
       .run();
+  }
+
+  if (_action === "reorder") {
+    const resumeId = Number(form.get("resumeId"));
+    if (!ownedResume(resumeId, userId)) return NOT_FOUND();
+    const kind = form.get("kind");
+    const rawIds = form.get("ids");
+    if (typeof kind !== "string" || !Object.hasOwn(REORDER_KINDS, kind))
+      return new Response("Bad kind", { status: 400 });
+    if (typeof rawIds !== "string" || rawIds === "")
+      return new Response("Bad ids", { status: 400 });
+    const parts = rawIds.split(",");
+    if (!parts.every((p) => /^[1-9]\d*$/.test(p)))
+      return new Response("Bad ids", { status: 400 });
+    const ids = parts.map(Number);
+    if (new Set(ids).size !== ids.length)
+      return new Response("Duplicate ids", { status: 400 });
+
+    const { table, column } = REORDER_KINDS[kind as keyof typeof REORDER_KINDS];
+    const ok = db.transaction((tx) => {
+      const rows = tx
+        .select({ id: table.id, libraryId: column, sortOrder: table.sortOrder })
+        .from(table)
+        .where(eq(table.resumeId, resumeId))
+        .all();
+      const byLibraryId = new Map(rows.map((r) => [r.libraryId, r]));
+      const listed = ids.map((id) => byLibraryId.get(id));
+      if (listed.some((r) => !r)) return false;
+      const slots = listed.map((r) => r!.sortOrder).sort((a, b) => a - b);
+      listed.forEach((r, i) => {
+        tx.update(table).set({ sortOrder: slots[i] }).where(eq(table.id, r!.id)).run();
+      });
+      tx.update(resumes)
+        .set({ updatedAt: new Date().toISOString() })
+        .where(eq(resumes.id, resumeId))
+        .run();
+      return true;
+    });
+    if (!ok) return new Response("Unknown ids", { status: 400 });
   }
 
   if (_action === "set_template") {

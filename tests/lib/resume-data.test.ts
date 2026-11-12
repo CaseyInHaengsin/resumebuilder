@@ -61,6 +61,7 @@ function makeInput(overrides: Partial<Input> = {}, resume: Partial<Input["resume
       { id: 2, userId: USER, name: "Platform focus", text: "Summary about platforms." },
     ],
     // Library order is the order of these arrays (the loader sorts by sortOrder).
+    // It does not decide the output order: the selected-id arrays below do.
     jobs: [job(1, "Staff Engineer"), job(2, "Backend Developer"), job(3, "Support Technician")],
     projects: [project(1, "Open Source Linter"), project(2, "Budget Tracker")],
     bullets: [
@@ -89,24 +90,24 @@ function makeInput(overrides: Partial<Input> = {}, resume: Partial<Input["resume
 }
 
 describe("buildResumeData", () => {
-  it("includes only selected jobs, in library order, with their fields", () => {
+  it("includes only selected jobs, in selectedJobIds order, with their fields", () => {
     const data = buildResumeData(makeInput());
-    expect(data.jobs.map((j) => j.title)).toEqual(["Staff Engineer", "Support Technician"]);
-    expect(data.jobs[0]).toEqual({
+    expect(data.jobs.map((j) => j.title)).toEqual(["Support Technician", "Staff Engineer"]);
+    expect(data.jobs[1]).toEqual({
       title: "Staff Engineer",
       company: "Staff Engineer Co",
       dates: "2011 - 2012",
       location: "City 1",
-      bullets: ["Job one, first", "Job one, third"],
+      bullets: ["Job one, third", "Job one, first"],
     });
   });
 
-  it("includes only selected bullets, under their own parent, in library order", () => {
+  it("includes only selected bullets, under their own parent, in selectedBulletIds order", () => {
     const data = buildResumeData(makeInput());
     // 104 is selected but its job (2) is not: it appears nowhere.
     expect(data.jobs.map((j) => j.bullets)).toEqual([
-      ["Job one, first", "Job one, third"],
       ["Job three, second"],
+      ["Job one, third", "Job one, first"],
     ]);
     // 109 is selected but its project (2) is not; job 1's bullets do not leak into project 1.
     expect(data.projects).toEqual([
@@ -122,12 +123,64 @@ describe("buildResumeData", () => {
     expect(data.projects).toEqual([{ name: "Budget Tracker", dates: "2012", tech: "Tech 2", bullets: [] }]);
   });
 
-  it("includes only selected skills, in library order, as category and items", () => {
+  it("includes only selected skills, in selectedSkillIds order, as category and items", () => {
     const data = buildResumeData(makeInput());
     expect(data.skills).toEqual([
-      { category: "Languages", items: ["TypeScript", "Go"] },
       { category: "Tools", items: ["Docker", "Terraform"] },
+      { category: "Languages", items: ["TypeScript", "Go"] },
     ]);
+  });
+
+  it("lists projects in selectedProjectIds order, each with its bullets in selectedBulletIds order", () => {
+    const data = buildResumeData(
+      makeInput({ selectedProjectIds: [2, 1], selectedBulletIds: [108, 109, 107] }),
+    );
+    expect(data.projects).toEqual([
+      { name: "Budget Tracker", dates: "2012", tech: "Tech 2", bullets: ["Project two, first"] },
+      {
+        name: "Open Source Linter",
+        dates: "2011",
+        tech: "Tech 1",
+        bullets: ["Project one, second", "Project one, first"],
+      },
+    ]);
+  });
+
+  it("orders one parent's bullets by selectedBulletIds even when other parents' ids sit between them", () => {
+    const data = buildResumeData(
+      makeInput({ selectedJobIds: [1, 3], selectedBulletIds: [102, 106, 103, 105, 101] }),
+    );
+    expect(data.jobs.map((j) => j.bullets)).toEqual([
+      ["Job one, second", "Job one, third", "Job one, first"],
+      ["Job three, second", "Job three, first"],
+    ]);
+  });
+
+  it("ignores the order and sortOrder of the library rows", () => {
+    const base = makeInput();
+    const shuffled = makeInput({
+      jobs: [job(2, "Backend Developer", 0), job(3, "Support Technician", 9), job(1, "Staff Engineer", 5)],
+      projects: [project(2, "Budget Tracker", 0), project(1, "Open Source Linter", 1)],
+      bullets: [...base.bullets].reverse().map((b, i) => ({ ...b, sortOrder: i })),
+      skills: [...base.skills].reverse().map((s, i) => ({ ...s, sortOrder: i })),
+    });
+    expect(buildResumeData(shuffled)).toEqual(buildResumeData(base));
+  });
+
+  // A selection whose library row is gone is skipped, not rendered or thrown on.
+  it("skips selected ids that have no library row", () => {
+    const data = buildResumeData(
+      makeInput({
+        selectedJobIds: [99, 3, 1],
+        selectedProjectIds: [98, 1],
+        selectedBulletIds: [97, 106, 103, 101, 108],
+        selectedSkillIds: [96, 3, 1],
+      }),
+    );
+    expect(data.jobs.map((j) => j.title)).toEqual(["Support Technician", "Staff Engineer"]);
+    expect(data.jobs[1].bullets).toEqual(["Job one, third", "Job one, first"]);
+    expect(data.projects.map((p) => p.name)).toEqual(["Open Source Linter"]);
+    expect(data.skills.map((s) => s.category)).toEqual(["Tools", "Languages"]);
   });
 
   it("returns empty lists when nothing is selected", () => {

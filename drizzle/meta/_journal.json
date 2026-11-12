@@ -22,6 +22,13 @@
       "when": 1792259457908,
       "tag": "0002_network_contacts",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794499355577,
+      "tag": "0003_normalize_resume_order",
+      "breakpoints": true
     }
   ]
 }

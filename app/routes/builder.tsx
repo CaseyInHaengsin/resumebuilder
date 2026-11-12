@@ -16,6 +16,23 @@ import {
   resumeSkills,
   companies,
 } from "~/db/schema";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { and, eq, asc } from "drizzle-orm";
 import type { Route } from "./+types/builder";
 import type { ResumeData, TemplateId } from "~/components/pdf/ResumeDocument";
@@ -80,10 +97,30 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     .all();
 
   // Current selections
-  const selectedJobs = db.select().from(resumeJobs).where(eq(resumeJobs.resumeId, resumeId)).all();
-  const selectedProjects = db.select().from(resumeProjects).where(eq(resumeProjects.resumeId, resumeId)).all();
-  const selectedBullets = db.select().from(resumeBullets).where(eq(resumeBullets.resumeId, resumeId)).all();
-  const selectedSkills = db.select().from(resumeSkills).where(eq(resumeSkills.resumeId, resumeId)).all();
+  const selectedJobs = db
+    .select()
+    .from(resumeJobs)
+    .where(eq(resumeJobs.resumeId, resumeId))
+    .orderBy(asc(resumeJobs.sortOrder), asc(resumeJobs.id))
+    .all();
+  const selectedProjects = db
+    .select()
+    .from(resumeProjects)
+    .where(eq(resumeProjects.resumeId, resumeId))
+    .orderBy(asc(resumeProjects.sortOrder), asc(resumeProjects.id))
+    .all();
+  const selectedBullets = db
+    .select()
+    .from(resumeBullets)
+    .where(eq(resumeBullets.resumeId, resumeId))
+    .orderBy(asc(resumeBullets.sortOrder), asc(resumeBullets.id))
+    .all();
+  const selectedSkills = db
+    .select()
+    .from(resumeSkills)
+    .where(eq(resumeSkills.resumeId, resumeId))
+    .orderBy(asc(resumeSkills.sortOrder), asc(resumeSkills.id))
+    .all();
 
   return {
     resume,
@@ -284,6 +321,101 @@ function SummaryPicker({
   );
 }
 
+type ReorderKind = "jobs" | "projects" | "bullets" | "skills";
+type OnReorder = (kind: ReorderKind, ids: number[]) => void;
+
+/** Puts the listed ids into the slots they already occupy, in the listed order (mirrors the server). */
+function applyReorder(selected: number[], ids: number[]): number[] {
+  const listed = new Set(ids);
+  if (!ids.every((id) => selected.includes(id))) return selected;
+  let next = 0;
+  return selected.map((id) => (listed.has(id) ? ids[next++] : id));
+}
+
+/** Selected ids first (in resume order), then the rest in library order. */
+function selectedFirst<T extends { id: number }>(rows: T[], selectedIds: number[]) {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const selected = selectedIds.flatMap((id) => byId.get(id) ?? []);
+  const chosen = new Set(selected.map((r) => r.id));
+  return { selected, unselected: rows.filter((r) => !chosen.has(r.id)) };
+}
+
+/** Drag-and-drop scope for one list of selected rows. */
+function SortableGroup({
+  scope,
+  kind,
+  ids,
+  onReorder,
+  children,
+}: {
+  scope: string;
+  kind: ReorderKind;
+  ids: number[];
+  onReorder: OnReorder;
+  children: React.ReactNode;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const from = ids.indexOf(Number(active.id));
+    const to = ids.indexOf(Number(over.id));
+    if (from < 0 || to < 0) return;
+    onReorder(kind, arrayMove(ids, from, to));
+  };
+  return (
+    <DndContext
+      id={scope}
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={onDragEnd}
+    >
+      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+        {children}
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+/** Wrapper for a selected row; hands the grip button to its render prop. */
+function SortableRow({
+  id,
+  children,
+}: {
+  id: number;
+  children: (handle: React.ReactNode) => React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id });
+  const handle = (
+    <button
+      type="button"
+      aria-label="Reorder"
+      className="shrink-0 cursor-grab touch-none select-none px-0.5 text-xs leading-none text-gray-400 hover:text-gray-600 active:cursor-grabbing dark:hover:text-gray-200"
+      {...attributes}
+      {...listeners}
+    >
+      ⠿
+    </button>
+  );
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.6 : undefined,
+        position: "relative",
+        zIndex: isDragging ? 10 : undefined,
+      }}
+    >
+      {children(handle)}
+    </div>
+  );
+}
+
 function ToggleItem({
   resumeId,
   action,
@@ -292,6 +424,7 @@ function ToggleItem({
   selected,
   label,
   sublabel,
+  handle,
   children,
 }: {
   resumeId: number;
@@ -301,6 +434,7 @@ function ToggleItem({
   selected: boolean;
   label: string;
   sublabel?: string;
+  handle?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   const fetcher = useFetcher();
@@ -311,6 +445,7 @@ function ToggleItem({
   return (
     <div className={`rounded border px-3 py-2 ${isSelected ? "border-blue-300 bg-blue-50 dark:bg-blue-950 dark:border-blue-700" : "border-gray-200 bg-white dark:bg-gray-900 dark:border-gray-700"}`}>
       <div className="flex items-center gap-2">
+        {handle}
         <fetcher.Form method="post" action="/api/resumes">
           <input type="hidden" name="_action" value={action} />
           <input type="hidden" name="resumeId" value={resumeId} />
@@ -353,16 +488,19 @@ function BulletToggle({
   resumeId,
   bullet,
   selected,
+  handle,
 }: {
   resumeId: number;
   bullet: { id: number; text: string; priority: number };
   selected: boolean;
+  handle?: React.ReactNode;
 }) {
   const fetcher = useFetcher();
   const isSelected = fetcher.formData ? !selected : selected;
 
   return (
     <div className="flex items-start gap-2 py-0.5">
+      {handle}
       <fetcher.Form method="post" action="/api/resumes">
         <input type="hidden" name="_action" value="toggle_bullet" />
         <input type="hidden" name="resumeId" value={resumeId} />
@@ -386,6 +524,44 @@ function BulletToggle({
       <span className="text-xs text-gray-700 dark:text-gray-300 leading-tight">
         {bullet.text}
       </span>
+    </div>
+  );
+}
+
+/** Bullets of one job or project: selected first (draggable), then the rest. */
+function BulletList({
+  resumeId,
+  scope,
+  bullets,
+  selectedBulletIds,
+  onReorder,
+}: {
+  resumeId: number;
+  scope: string;
+  bullets: { id: number; text: string; priority: number }[];
+  selectedBulletIds: number[];
+  onReorder: OnReorder;
+}) {
+  const { selected, unselected } = selectedFirst(bullets, selectedBulletIds);
+  return (
+    <div className="space-y-0.5">
+      <SortableGroup
+        scope={scope}
+        kind="bullets"
+        ids={selected.map((b) => b.id)}
+        onReorder={onReorder}
+      >
+        {selected.map((bullet) => (
+          <SortableRow key={bullet.id} id={bullet.id}>
+            {(handle) => (
+              <BulletToggle resumeId={resumeId} bullet={bullet} selected handle={handle} />
+            )}
+          </SortableRow>
+        ))}
+      </SortableGroup>
+      {unselected.map((bullet) => (
+        <BulletToggle key={bullet.id} resumeId={resumeId} bullet={bullet} selected={false} />
+      ))}
     </div>
   );
 }
@@ -487,16 +663,97 @@ export default function Builder() {
     allCompanies,
     contact: contactRow,
     education: educationRow,
-    selectedJobIds,
-    selectedProjectIds,
-    selectedBulletIds,
-    selectedSkillIds,
+    selectedJobIds: loadedJobIds,
+    selectedProjectIds: loadedProjectIds,
+    selectedBulletIds: loadedBulletIds,
+    selectedSkillIds: loadedSkillIds,
   } = useLoaderData<typeof loader>();
+
+  // Show a drop immediately; the loader arrays take over once the request settles.
+  const reorderFetcher = useFetcher();
+  const onReorder: OnReorder = (kind, ids) => {
+    reorderFetcher.submit(
+      { _action: "reorder", resumeId: String(resume.id), kind, ids: ids.join(",") },
+      { method: "post", action: "/api/resumes" },
+    );
+  };
+  const pending = reorderFetcher.formData;
+  const pendingKind = pending?.get("kind");
+  const pendingIds = String(pending?.get("ids") ?? "")
+    .split(",")
+    .map(Number)
+    .filter(Boolean);
+  const optimistic = (kind: ReorderKind, loaded: number[]) =>
+    pending && pendingKind === kind ? applyReorder(loaded, pendingIds) : loaded;
+  const selectedJobIds = optimistic("jobs", loadedJobIds);
+  const selectedProjectIds = optimistic("projects", loadedProjectIds);
+  const selectedBulletIds = optimistic("bullets", loadedBulletIds);
+  const selectedSkillIds = optimistic("skills", loadedSkillIds);
 
   const getBullets = (parentType: string, parentId: number) =>
     allBullets.filter(
       (b) => b.parentType === parentType && b.parentId === parentId
     );
+
+  const orderedJobs = selectedFirst(allJobs, selectedJobIds);
+  const orderedProjects = selectedFirst(allProjects, selectedProjectIds);
+  const orderedSkills = selectedFirst(allSkills, selectedSkillIds);
+
+  const renderJob = (job: (typeof allJobs)[number], selected: boolean, handle?: React.ReactNode) => (
+    <ToggleItem
+      key={job.id}
+      resumeId={resume.id}
+      action="toggle_job"
+      fieldName="jobId"
+      itemId={job.id}
+      selected={selected}
+      label={job.title}
+      sublabel={`${job.company} | ${job.dates}`}
+      handle={handle}
+    >
+      <BulletList
+        resumeId={resume.id}
+        scope={`job-${job.id}-bullets`}
+        bullets={getBullets("job", job.id)}
+        selectedBulletIds={selectedBulletIds}
+        onReorder={onReorder}
+      />
+    </ToggleItem>
+  );
+  const renderProject = (project: (typeof allProjects)[number], selected: boolean, handle?: React.ReactNode) => (
+    <ToggleItem
+      key={project.id}
+      resumeId={resume.id}
+      action="toggle_project"
+      fieldName="projectId"
+      itemId={project.id}
+      selected={selected}
+      label={project.name}
+      sublabel={project.tech}
+      handle={handle}
+    >
+      <BulletList
+        resumeId={resume.id}
+        scope={`project-${project.id}-bullets`}
+        bullets={getBullets("project", project.id)}
+        selectedBulletIds={selectedBulletIds}
+        onReorder={onReorder}
+      />
+    </ToggleItem>
+  );
+  const renderSkill = (skill: (typeof allSkills)[number], selected: boolean, handle?: React.ReactNode) => (
+    <ToggleItem
+      key={skill.id}
+      resumeId={resume.id}
+      action="toggle_skill"
+      fieldName="skillId"
+      itemId={skill.id}
+      selected={selected}
+      label={skill.category}
+      sublabel={`${skill.name}: ${(skill.items as string[]).join(", ")}`}
+      handle={handle}
+    />
+  );
 
   // Build the ResumeData for preview from current selections
   const previewData: ResumeData = useMemo(
@@ -659,29 +916,14 @@ export default function Builder() {
             Jobs
           </h3>
           <div className="space-y-2">
-            {allJobs.map((job) => (
-              <ToggleItem
-                key={job.id}
-                resumeId={resume.id}
-                action="toggle_job"
-                fieldName="jobId"
-                itemId={job.id}
-                selected={selectedJobIds.includes(job.id)}
-                label={job.title}
-                sublabel={`${job.company} | ${job.dates}`}
-              >
-                <div className="space-y-0.5">
-                  {getBullets("job", job.id).map((bullet) => (
-                    <BulletToggle
-                      key={bullet.id}
-                      resumeId={resume.id}
-                      bullet={bullet}
-                      selected={selectedBulletIds.includes(bullet.id)}
-                    />
-                  ))}
-                </div>
-              </ToggleItem>
-            ))}
+            <SortableGroup scope="jobs" kind="jobs" ids={orderedJobs.selected.map((j) => j.id)} onReorder={onReorder}>
+              {orderedJobs.selected.map((job) => (
+                <SortableRow key={job.id} id={job.id}>
+                  {(handle) => renderJob(job, true, handle)}
+                </SortableRow>
+              ))}
+            </SortableGroup>
+            {orderedJobs.unselected.map((job) => renderJob(job, false))}
           </div>
         </div>
 
@@ -691,29 +933,14 @@ export default function Builder() {
             Projects
           </h3>
           <div className="space-y-2">
-            {allProjects.map((project) => (
-              <ToggleItem
-                key={project.id}
-                resumeId={resume.id}
-                action="toggle_project"
-                fieldName="projectId"
-                itemId={project.id}
-                selected={selectedProjectIds.includes(project.id)}
-                label={project.name}
-                sublabel={project.tech}
-              >
-                <div className="space-y-0.5">
-                  {getBullets("project", project.id).map((bullet) => (
-                    <BulletToggle
-                      key={bullet.id}
-                      resumeId={resume.id}
-                      bullet={bullet}
-                      selected={selectedBulletIds.includes(bullet.id)}
-                    />
-                  ))}
-                </div>
-              </ToggleItem>
-            ))}
+            <SortableGroup scope="projects" kind="projects" ids={orderedProjects.selected.map((p) => p.id)} onReorder={onReorder}>
+              {orderedProjects.selected.map((project) => (
+                <SortableRow key={project.id} id={project.id}>
+                  {(handle) => renderProject(project, true, handle)}
+                </SortableRow>
+              ))}
+            </SortableGroup>
+            {orderedProjects.unselected.map((project) => renderProject(project, false))}
           </div>
         </div>
 
@@ -723,18 +950,14 @@ export default function Builder() {
             Skills
           </h3>
           <div className="space-y-2">
-            {allSkills.map((skill) => (
-              <ToggleItem
-                key={skill.id}
-                resumeId={resume.id}
-                action="toggle_skill"
-                fieldName="skillId"
-                itemId={skill.id}
-                selected={selectedSkillIds.includes(skill.id)}
-                label={skill.category}
-                sublabel={`${skill.name}: ${(skill.items as string[]).join(", ")}`}
-              />
-            ))}
+            <SortableGroup scope="skills" kind="skills" ids={orderedSkills.selected.map((k) => k.id)} onReorder={onReorder}>
+              {orderedSkills.selected.map((skill) => (
+                <SortableRow key={skill.id} id={skill.id}>
+                  {(handle) => renderSkill(skill, true, handle)}
+                </SortableRow>
+              ))}
+            </SortableGroup>
+            {orderedSkills.unselected.map((skill) => renderSkill(skill, false))}
           </div>
         </div>
       </div>

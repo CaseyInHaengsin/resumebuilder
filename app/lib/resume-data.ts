@@ -30,14 +30,16 @@ export interface ResumeDataInput {
 export function buildResumeData(input: ResumeDataInput): ResumeData {
   const { resume, contact: contactRow, education: educationRow } = input;
 
+  // Output order follows the selected-id arrays; ids without a library row are skipped.
+  const inSelectedOrder = <T extends { id: number }>(rows: T[], ids: number[]) => {
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    return ids.flatMap((id) => byId.get(id) ?? []);
+  };
+
+  const selectedBullets = inSelectedOrder(input.bullets, input.selectedBulletIds);
   const bulletsFor = (parentType: "job" | "project", parentId: number) =>
-    input.bullets
-      .filter(
-        (b) =>
-          b.parentType === parentType &&
-          b.parentId === parentId &&
-          input.selectedBulletIds.includes(b.id),
-      )
+    selectedBullets
+      .filter((b) => b.parentType === parentType && b.parentId === parentId)
       .map((b) => b.text);
 
   const summary = resume.summaryId
@@ -65,21 +67,15 @@ export function buildResumeData(input: ResumeDataInput): ResumeData {
   return {
     contact,
     summary,
-    jobs: input.jobs
-      .filter((j) => input.selectedJobIds.includes(j.id))
-      .map((job) => ({
+    jobs: inSelectedOrder(input.jobs, input.selectedJobIds).map((job) => ({
         title: job.title,
         company: job.company,
         dates: job.dates,
         location: job.location,
         bullets: bulletsFor("job", job.id),
       })),
-    skills: input.skills
-      .filter((s) => input.selectedSkillIds.includes(s.id))
-      .map((s) => ({ category: s.category, items: s.items as string[] })),
-    projects: input.projects
-      .filter((p) => input.selectedProjectIds.includes(p.id))
-      .map((project) => ({
+    skills: inSelectedOrder(input.skills, input.selectedSkillIds).map((s) => ({ category: s.category, items: s.items as string[] })),
+    projects: inSelectedOrder(input.projects, input.selectedProjectIds).map((project) => ({
         name: project.name,
         dates: project.dates,
         tech: project.tech,
