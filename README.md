@@ -1,88 +1,53 @@
-# Welcome to React Router!
+# Resume Builder
 
-A modern, production-ready template for building full-stack React applications using React Router.
+A self-hosted personal resume builder and job-application tracker. It keeps a content library of jobs, projects, bullets, summaries and skills. Resumes are assembled from that library with a live PDF preview in three templates (modern, classic, minimal). Applications move through a pipeline board, and companies and network contacts are tracked alongside them. An MCP endpoint, protected by OAuth or a bearer token, lets Claude read and update the data (see `app/mcp/`).
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/remix-run/react-router-templates/tree/main/default)
+Stack: React Router 7 (server-rendered), React 19, TypeScript, Tailwind CSS 4, SQLite via better-sqlite3 and Drizzle ORM, `@react-pdf/renderer` for PDFs, Vitest.
 
-## Features
+## Getting started
 
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
-
-## Getting Started
-
-### Installation
-
-Install the dependencies:
+Prerequisites: Node 26 (see `.nvmrc`) and pnpm 10 (pinned by `packageManager` in `package.json`).
 
 ```bash
 pnpm install
+node scripts/migrate.mjs   # creates data/resume.db and applies the migrations in drizzle/
+pnpm dev                   # dev server with HMR on http://localhost:5173
 ```
 
-### Development
+Open http://localhost:5173/signup and create the first account. Signup is enabled outside production; see `ALLOW_SIGNUP` below.
 
-Start the development server with HMR:
+To change the schema, edit `app/db/schema.ts`, then run `pnpm db:generate` and commit the new file in `drizzle/`. The app applies pending migrations at container start in production.
 
-```bash
-pnpm dev
-```
+## Scripts
 
-Your application will be available at `http://localhost:5173`.
+| Script | Runs | Purpose |
+|---|---|---|
+| `pnpm dev` | `react-router dev` | Development server with HMR |
+| `pnpm build` | `react-router build` | Production build into `build/` |
+| `pnpm start` | `react-router-serve ./build/server/index.js` | Serve the production build (run `pnpm build` first) |
+| `pnpm test` | `vitest run` | Run the tests in `tests/` |
+| `pnpm typecheck` | `react-router typegen && tsc` | Generate route types and type-check |
+| `pnpm db:generate` | `drizzle-kit generate` | Write a SQL migration for schema changes |
+| `pnpm db:push` | `drizzle-kit push` | Apply the schema directly, without a migration. Local experiments only (see DEPLOYMENT.md) |
+| `pnpm db:studio` | `drizzle-kit studio` | Open Drizzle Studio on the database |
+| `pnpm db:seed` | `tsx scripts/seed.ts` | Import a resume YAML file for a user: `pnpm db:seed -- <file.yaml> --user=<username>` |
 
-## Building for Production
+## Environment variables
 
-Create a production build:
-
-```bash
-pnpm build
-```
+| Variable | Default | Purpose |
+|---|---|---|
+| `NODE_ENV` | unset (treated as development) | `production` enables the production defaults below. The Docker image sets it. |
+| `SESSION_SECRET` | insecure dev fallback, with a startup warning | Signs session cookies. Set it in production with `openssl rand -hex 32`. |
+| `COOKIE_SECURE` | `true` when `NODE_ENV=production`, otherwise `false` | Marks the session cookie `Secure`. Set `"true"` once HTTPS fronts the app. |
+| `ALLOW_SIGNUP` | off in production, on otherwise | Set to `"true"` to enable `/signup`. Any other value disables it. |
+| `PUBLIC_URL` | `http://localhost:5173` outside production | Browser-facing origin, for example `https://resume.example.com`. Used for OAuth issuer and resource URLs, so the MCP endpoint is `<PUBLIC_URL>/mcp`. Required in production; the app throws on first use if it is missing. |
+| `DATABASE_PATH` | `data/resume.db` (relative to the working directory) | SQLite database file. Read by the app and `scripts/migrate.mjs`. |
+| `UPLOADS_DIR` | `data/uploads` | Directory for uploaded images (2 MB limit; JPEG, PNG, GIF, WEBP or SVG). |
+| `APP_TIMEZONE` | the process's local time zone | IANA time zone used for "today" on the applications pages and in the MCP write tools. |
 
 ## Deployment
 
-### Docker Deployment
-
-To build and run using Docker:
-
-```bash
-docker build -t my-app .
-
-# Run the container
-docker run -p 3000:3000 my-app
-```
-
-The containerized application can be deployed to any platform that supports Docker, including:
-
-- AWS ECS
-- Google Cloud Run
-- Azure Container Apps
-- Digital Ocean App Platform
-- Fly.io
-- Railway
-
-### DIY Deployment
-
-If you're familiar with deploying Node applications, the built-in app server is production-ready.
-
-Make sure to deploy the output of `pnpm build`
-
-```
-├── package.json
-├── pnpm-lock.yaml
-├── build/
-│   ├── client/    # Static assets
-│   └── server/    # Server-side code
-```
-
-## Styling
-
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
-
----
+The production image is built by `build-and-push.sh` and runs on a home server through Portainer, using `docker-compose.prod.yml` as the reference stack. The container keeps the database and uploads under `/app/data`, and migrations run on each start. See [DEPLOYMENT.md](DEPLOYMENT.md) for the steps and the production environment variables.
 
 ## MCP
 
