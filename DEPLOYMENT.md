@@ -43,7 +43,7 @@ services:
     restart: unless-stopped
 ```
 
-Adjust the host volume path (`/mnt/user/appdata/...`) to match your server's appdata layout. The container writes the SQLite DB and uploaded images under `/app/data`, so that single mount covers all persistent state.
+Adjust the host volume path (`/mnt/user/appdata/...`) to match your server's appdata layout. The container writes the SQLite DB, uploaded images and saved application PDFs under `/app/data`, so that single mount covers all persistent state.
 
 Click **Deploy the stack**.
 
@@ -77,6 +77,7 @@ The container's startup migrator applies any new migrations in order and records
 Inside the container, `/app/data/` holds:
 - `resume.db` (+ `-shm`, `-wal`) — SQLite database
 - `uploads/` — company logos / images
+- `documents/` — PDF copies saved with applications (the resume as it was sent); created on the first save
 
 Back up the host-side volume directory to back up everything.
 

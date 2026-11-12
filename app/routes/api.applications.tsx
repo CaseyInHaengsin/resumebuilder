@@ -2,12 +2,20 @@ import { redirect } from "react-router";
 import { db } from "~/db";
 import {
   applications,
+  companies,
+  resumes,
   APPLICATION_STATUSES,
   type ApplicationStatus,
 } from "~/db/schema";
 import { and, eq } from "drizzle-orm";
 import { requireUserId } from "~/lib/auth.server";
 import { appToday } from "~/lib/dates";
+import {
+  deleteApplication,
+  deleteDocument,
+  snapshotOnApplied,
+  snapshotResumeForApplication,
+} from "~/lib/documents.server";
 import type { Route } from "./+types/api.applications";
 
 function isStatus(s: unknown): s is ApplicationStatus {
@@ -24,11 +32,26 @@ function strOrNull(form: FormData, key: string): string | null {
   return t === "" ? null : t;
 }
 
-function numOrNull(form: FormData, key: string): number | null {
+/**
+ * A company or resume id from the form: null when blank (clears the link),
+ * the id when it is one of the user's rows, "invalid" otherwise.
+ */
+function ownedId(
+  form: FormData,
+  key: "companyId" | "resumeId",
+  userId: number,
+): number | null | "invalid" {
   const v = form.get(key);
   if (typeof v !== "string" || v.trim() === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  const id = Number(v);
+  if (!Number.isInteger(id) || id <= 0) return "invalid";
+  const table = key === "companyId" ? companies : resumes;
+  const row = db
+    .select({ id: table.id })
+    .from(table)
+    .where(and(eq(table.id, id), eq(table.userId, userId)))
+    .get();
+  return row ? id : "invalid";
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -37,6 +60,10 @@ export async function action({ request }: Route.ActionArgs) {
   const _action = form.get("_action") as string;
 
   if (_action === "create") {
+    const companyId = ownedId(form, "companyId", userId);
+    const resumeId = ownedId(form, "resumeId", userId);
+    if (companyId === "invalid") return new Response("Unknown company", { status: 400 });
+    if (resumeId === "invalid") return new Response("Unknown resume", { status: 400 });
     const jobTitle = strOrNull(form, "jobTitle") ?? "Untitled Role";
     const statusRaw = form.get("status");
     const status = isStatus(statusRaw) ? statusRaw : "applied";
@@ -48,8 +75,8 @@ export async function action({ request }: Route.ActionArgs) {
       .insert(applications)
       .values({
         userId,
-        companyId: numOrNull(form, "companyId"),
-        resumeId: numOrNull(form, "resumeId"),
+        companyId,
+        resumeId,
         jobTitle,
         jobUrl: strOrNull(form, "jobUrl"),
         source: strOrNull(form, "source"),
@@ -73,13 +100,17 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (_action === "update") {
     const id = Number(form.get("id"));
+    const companyId = ownedId(form, "companyId", userId);
+    const resumeId = ownedId(form, "resumeId", userId);
+    if (companyId === "invalid") return new Response("Unknown company", { status: 400 });
+    if (resumeId === "invalid") return new Response("Unknown resume", { status: 400 });
     const statusRaw = form.get("status");
     const status = isStatus(statusRaw) ? statusRaw : undefined;
     const next: Record<string, unknown> = {
       updatedAt: new Date().toISOString(),
       jobTitle: strOrNull(form, "jobTitle") ?? "Untitled Role",
-      companyId: numOrNull(form, "companyId"),
-      resumeId: numOrNull(form, "resumeId"),
+      companyId,
+      resumeId,
       jobUrl: strOrNull(form, "jobUrl"),
       source: strOrNull(form, "source"),
       location: strOrNull(form, "location"),
@@ -111,18 +142,16 @@ export async function action({ request }: Route.ActionArgs) {
       status: statusRaw,
       updatedAt: new Date().toISOString(),
     };
+    const row = db
+      .select({ status: applications.status, appliedAt: applications.appliedAt })
+      .from(applications)
+      .where(
+        and(eq(applications.id, id), eq(applications.userId, userId)),
+      )
+      .get();
     // Convenience: if moving out of wishlist, set applied_at to today when unset.
-    if (statusRaw !== "wishlist") {
-      const row = db
-        .select({ appliedAt: applications.appliedAt })
-        .from(applications)
-        .where(
-          and(eq(applications.id, id), eq(applications.userId, userId)),
-        )
-        .get();
-      if (row && !row.appliedAt) {
-        patch.appliedAt = appToday();
-      }
+    if (statusRaw !== "wishlist" && row && !row.appliedAt) {
+      patch.appliedAt = appToday();
     }
     db.update(applications)
       .set(patch)
@@ -130,16 +159,42 @@ export async function action({ request }: Route.ActionArgs) {
         and(eq(applications.id, id), eq(applications.userId, userId)),
       )
       .run();
+    // Keep a copy of the resume that went out. Never fails the status change.
+    if (row) await snapshotOnApplied(userId, id, row.status, statusRaw);
     return new Response("ok");
+  }
+
+  if (_action === "snapshot_resume") {
+    const id = Number(form.get("id"));
+    if (!Number.isInteger(id) || id <= 0)
+      return new Response("Not found", { status: 404 });
+    let result;
+    try {
+      result = await snapshotResumeForApplication(userId, id);
+    } catch (err) {
+      console.error(`[documents] snapshot for application ${id} failed:`, err);
+      return new Response("Could not save the PDF", { status: 500 });
+    }
+    if ("error" in result) {
+      return result.error === "not_found"
+        ? new Response("Not found", { status: 404 })
+        : new Response("Link a resume to this application first", { status: 400 });
+    }
+    return { ok: true, documentId: result.id };
+  }
+
+  if (_action === "delete_document") {
+    const documentId = Number(form.get("documentId"));
+    if (!Number.isInteger(documentId) || documentId <= 0)
+      return new Response("Not found", { status: 404 });
+    if (!(await deleteDocument(userId, documentId)))
+      return new Response("Not found", { status: 404 });
+    return { ok: true };
   }
 
   if (_action === "delete") {
     const id = Number(form.get("id"));
-    db.delete(applications)
-      .where(
-        and(eq(applications.id, id), eq(applications.userId, userId)),
-      )
-      .run();
+    await deleteApplication(userId, id);
     return redirect("/applications");
   }
 

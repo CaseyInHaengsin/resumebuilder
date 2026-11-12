@@ -2,12 +2,18 @@ import { Font } from "@react-pdf/renderer";
 
 let registered = false;
 
-// Fonts live in public/fonts. In Node (server-side rendering) they are read
-// from disk; in the browser they are fetched from /fonts/<file>. No Node
-// built-ins are imported so this module stays bundleable for the client.
+// Fonts live in public/fonts. In the browser they are fetched from
+// /fonts/<file>. In Node they are read from disk: from FONTS_DIR when set,
+// else from <cwd>/build/client/fonts in production (the image has no public/
+// directory) and <cwd>/public/fonts otherwise. This must not depend on another
+// module having set FONTS_DIR first: templates register fonts when they load.
+// No Node built-ins are imported so this module stays bundleable for the client.
 function fontSource(file: string): string {
   if (typeof window === "undefined") {
-    return `${process.cwd()}/public/fonts/${file}`;
+    const fallback =
+      process.env.NODE_ENV === "production" ? "build/client/fonts" : "public/fonts";
+    const dir = process.env.FONTS_DIR || `${process.cwd()}/${fallback}`;
+    return `${dir.replace(/\/+$/, "")}/${file}`;
   }
   return `/fonts/${file}`;
 }

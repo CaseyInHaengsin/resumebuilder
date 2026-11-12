@@ -3,8 +3,14 @@ import { z } from "zod";
 import { and, eq, max } from "drizzle-orm";
 import { db } from "~/db";
 import { appToday } from "~/lib/dates";
+import { getPublicUrl } from "~/lib/oauth.server";
+import {
+  snapshotOnApplied,
+  snapshotResumeForApplication,
+} from "~/lib/documents.server";
 import {
   APPLICATION_STATUSES,
+  applicationDocuments,
   applications,
   bullets,
   jobs,
@@ -30,7 +36,7 @@ export function registerWriteTools(server: McpServer, userId: number): void {
     "update_application_status",
     {
       description:
-        "Updates the status of an application. Valid statuses: wishlist, applied, interviewing, offer, accepted, rejected. If the status moves out of 'wishlist' and appliedAt is unset, appliedAt is backfilled with today's date.",
+        "Updates the status of an application. Valid statuses: wishlist, applied, interviewing, offer, accepted, rejected. If the status moves out of 'wishlist' and appliedAt is unset, appliedAt is backfilled with today's date. Moving from 'wishlist' to 'applied' also saves a PDF copy of the linked resume with the application (see get_application documents); if that copy cannot be made, the status still changes.",
       inputSchema: {
         id: z.number().int().positive(),
         status: z.enum(APPLICATION_STATUSES),
@@ -55,12 +61,51 @@ export function registerWriteTools(server: McpServer, userId: number): void {
         .set(patch)
         .where(and(eq(applications.id, id), eq(applications.userId, userId)))
         .run();
+      await snapshotOnApplied(userId, id, existing.status, status);
       const updated = db
         .select()
         .from(applications)
         .where(and(eq(applications.id, id), eq(applications.userId, userId)))
         .get();
       return jsonResult(updated);
+    },
+  );
+
+  server.registerTool(
+    "snapshot_application_resume",
+    {
+      description:
+        "Saves a PDF copy of the resume linked to an application, rendered as the resume is right now, and stores it with the application as a record of what was sent. Later edits to the resume do not change the copy. Use it when the user says they sent or are about to send the resume. Each call stores a new copy. Fails if the application has no linked resume. Returns { id, fileName, url }; the url downloads the copy and needs the user to be signed in to the app in their browser.",
+      inputSchema: {
+        applicationId: z.number().int().positive(),
+      },
+    },
+    async ({ applicationId }) => {
+      let result;
+      try {
+        result = await snapshotResumeForApplication(userId, applicationId);
+      } catch {
+        return errorResult(
+          `Could not save a PDF copy for application ${applicationId}. Try again later.`,
+        );
+      }
+      if ("error" in result) {
+        return result.error === "not_found"
+          ? errorResult(`Application ${applicationId} not found`)
+          : errorResult(
+              `Application ${applicationId} has no linked resume. Link one of the user's resumes to it first.`,
+            );
+      }
+      const row = db
+        .select({ id: applicationDocuments.id, fileName: applicationDocuments.fileName })
+        .from(applicationDocuments)
+        .where(eq(applicationDocuments.id, result.id))
+        .get();
+      return jsonResult({
+        id: result.id,
+        fileName: row?.fileName,
+        url: `${getPublicUrl()}/documents/${result.id}`,
+      });
     },
   );
 

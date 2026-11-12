@@ -1,4 +1,4 @@
-import { Form, Link, redirect, useLoaderData } from "react-router";
+import { Form, Link, redirect, useFetcher, useLoaderData } from "react-router";
 import { db } from "~/db";
 import {
   applications,
@@ -8,6 +8,8 @@ import {
 } from "~/db/schema";
 import { and, asc, eq } from "drizzle-orm";
 import { requireUserId } from "~/lib/auth.server";
+import { deleteApplication, listApplicationDocuments } from "~/lib/documents.server";
+import { ConfirmButton } from "~/components/ConfirmButton";
 import type { Route } from "./+types/applications.$id";
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -31,7 +33,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     .where(eq(resumes.userId, userId))
     .orderBy(asc(resumes.name))
     .all();
-  return { app, companies: userCompanies, resumes: userResumes };
+  return {
+    app,
+    companies: userCompanies,
+    resumes: userResumes,
+    documents: listApplicationDocuments(userId, id),
+  };
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -39,18 +46,14 @@ export async function action({ request, params }: Route.ActionArgs) {
   const id = Number(params.id);
   const form = await request.formData();
   if (form.get("_action") === "delete") {
-    db.delete(applications)
-      .where(
-        and(eq(applications.id, id), eq(applications.userId, userId)),
-      )
-      .run();
+    await deleteApplication(userId, id);
     return redirect("/applications");
   }
   return new Response("Bad request", { status: 400 });
 }
 
 export default function ApplicationDetail() {
-  const { app, companies, resumes } = useLoaderData<typeof loader>();
+  const { app, companies, resumes, documents } = useLoaderData<typeof loader>();
   return (
     <div className="max-w-3xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
@@ -224,6 +227,12 @@ export default function ApplicationDetail() {
         </div>
       </Form>
 
+      <DocumentsSection
+        applicationId={app.id}
+        resumeId={app.resumeId}
+        documents={documents}
+      />
+
       <Form
         method="post"
         onSubmit={(e) => {
@@ -241,6 +250,116 @@ export default function ApplicationDetail() {
         </button>
       </Form>
     </div>
+  );
+}
+
+type DocumentItem = ReturnType<typeof listApplicationDocuments>[number];
+
+const DOCUMENT_KIND_LABELS: Record<DocumentItem["kind"], string> = {
+  resume: "Resume",
+  cover_letter: "Cover letter",
+};
+
+function DocumentsSection({
+  applicationId,
+  resumeId,
+  documents,
+}: {
+  applicationId: number;
+  resumeId: number | null;
+  documents: DocumentItem[];
+}) {
+  const snapshot = useFetcher();
+  const saving = snapshot.state !== "idle";
+  const failed =
+    snapshot.state === "idle" && snapshot.data != null && !(snapshot.data as { ok?: boolean }).ok;
+  return (
+    <section className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-800 p-5 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Documents</h3>
+        {resumeId != null ? (
+          <div className="flex items-center gap-3">
+            <a
+              href={`/api/resumes/${resumeId}/pdf`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              View resume PDF
+            </a>
+            <snapshot.Form method="post" action="/api/applications">
+              <input type="hidden" name="_action" value="snapshot_resume" />
+              <input type="hidden" name="id" value={applicationId} />
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {saving ? "Saving..." : "Save sent copy"}
+              </button>
+            </snapshot.Form>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Link a resume to save a copy of what you send.
+          </p>
+        )}
+      </div>
+      {failed && (
+        <p className="text-sm text-red-600 dark:text-red-400">Could not save the copy.</p>
+      )}
+
+      {documents.length > 0 && (
+        <ul className="divide-y divide-gray-200 dark:divide-gray-800 border-t border-gray-200 dark:border-gray-800">
+          {documents.map((d) => (
+            <li key={d.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm">
+              <span className="font-medium text-gray-900 dark:text-white">{d.fileName}</span>
+              <span className="text-gray-500 dark:text-gray-400">
+                {DOCUMENT_KIND_LABELS[d.kind] ?? d.kind}
+                {" · "}
+                {d.createdAt.slice(0, 10)}
+                {d.pageCount != null &&
+                  ` · ${d.pageCount} ${d.pageCount === 1 ? "page" : "pages"}`}
+              </span>
+              <span className="ml-auto flex items-center gap-3">
+                <a
+                  href={`/documents/${d.id}`}
+                  className="text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  Download
+                </a>
+                <DeleteDocumentButton id={d.id} fileName={d.fileName} />
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        A copy is saved automatically when an application moves from Wishlist to Applied.
+      </p>
+    </section>
+  );
+}
+
+function DeleteDocumentButton({ id, fileName }: { id: number; fileName: string }) {
+  const fetcher = useFetcher();
+  const formId = `delete-document-${id}`;
+  return (
+    <>
+      <fetcher.Form id={formId} method="post" action="/api/applications" className="hidden">
+        <input type="hidden" name="_action" value="delete_document" />
+        <input type="hidden" name="documentId" value={id} />
+      </fetcher.Form>
+      <ConfirmButton
+        formId={formId}
+        title="Delete saved copy?"
+        message={`${fileName} will be removed for good.`}
+        className="text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
+      >
+        {fetcher.state !== "idle" ? "Deleting..." : "Delete"}
+      </ConfirmButton>
+    </>
   );
 }
 

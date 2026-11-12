@@ -57,6 +57,7 @@ export default [
     route("network", "routes/network.tsx"),
     route("api/applications", "routes/api.applications.tsx"),
     route("uploads/:file", "routes/uploads.$file.tsx"),
+    route("documents/:id", "routes/documents.$id.tsx"),
     route("techstack", "routes/techstack.tsx"),
     route("settings", "routes/settings.tsx"),
     route("api/export", "routes/api.export.tsx"),
@@ -67,5 +68,6 @@ export default [
     route("api/summaries", "routes/api.summaries.tsx"),
     route("api/skills", "routes/api.skills.tsx"),
     route("api/resumes", "routes/api.resumes.tsx"),
+    route("api/resumes/:id/pdf", "routes/api.resumes.$id.pdf.tsx"),
   ]),
 ] satisfies RouteConfig;

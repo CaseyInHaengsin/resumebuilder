@@ -265,6 +265,37 @@ export const resumeSkills = sqliteTable("resume_skills", {
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
+// ── Documents stored with an application (frozen PDFs of what was sent) ──
+
+export const APPLICATION_DOCUMENT_KINDS = ["resume", "cover_letter"] as const;
+export type ApplicationDocumentKind = (typeof APPLICATION_DOCUMENT_KINDS)[number];
+
+export const applicationDocuments = sqliteTable(
+  "application_documents",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    applicationId: integer("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().$type<ApplicationDocumentKind>(),
+    /** Download name shown to the user, e.g. "Jane-Doe-Resume.pdf". */
+    fileName: text("file_name").notNull(),
+    /** File name inside DOCUMENTS_DIR; starts with `u<userId>-`. */
+    storedName: text("stored_name").notNull().unique(),
+    /** The resume the snapshot was rendered from; null once that resume is deleted. */
+    resumeId: integer("resume_id").references(() => resumes.id, {
+      onDelete: "set null",
+    }),
+    template: text("template"),
+    pageCount: integer("page_count"),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [index("application_documents_application_idx").on(t.applicationId)],
+);
+
 // ── OAuth 2.1 (MCP authorization server) ──
 //
 // The app is its own authorization server for the `/mcp` resource: Claude's

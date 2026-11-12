@@ -43,11 +43,13 @@ To change the schema, edit `app/db/schema.ts`, then run `pnpm db:generate` and c
 | `PUBLIC_URL` | `http://localhost:5173` outside production | Browser-facing origin, for example `https://resume.example.com`. Used for OAuth issuer and resource URLs, so the MCP endpoint is `<PUBLIC_URL>/mcp`. Required in production; the app throws on first use if it is missing. |
 | `DATABASE_PATH` | `data/resume.db` (relative to the working directory) | SQLite database file. Read by the app and `scripts/migrate.mjs`. |
 | `UPLOADS_DIR` | `data/uploads` | Directory for uploaded images (2 MB limit; JPEG, PNG, GIF, WEBP or SVG). |
+| `DOCUMENTS_DIR` | `data/documents` | Directory for PDF copies saved with applications. Created on the first save. |
+| `FONTS_DIR` | `public/fonts`, else `build/client/fonts` (relative to the working directory) | Fonts for PDFs rendered on the server. Only needed if the fonts live somewhere else. |
 | `APP_TIMEZONE` | the process's local time zone | IANA time zone used for "today" on the applications pages and in the MCP write tools. |
 
 ## Deployment
 
-The production image is built by `build-and-push.sh` and runs on a home server through Portainer, using `docker-compose.prod.yml` as the reference stack. The container keeps the database and uploads under `/app/data`, and migrations run on each start. See [DEPLOYMENT.md](DEPLOYMENT.md) for the steps and the production environment variables.
+The production image is built by `build-and-push.sh` and runs on a home server through Portainer, using `docker-compose.prod.yml` as the reference stack. The container keeps the database, uploads and saved PDFs under `/app/data`, and migrations run on each start. See [DEPLOYMENT.md](DEPLOYMENT.md) for the steps and the production environment variables.
 
 ## MCP
 
@@ -151,15 +153,17 @@ claude mcp add resume-builder \
 | `get_contact`, `get_education` | Singleton entities |
 | `list_summaries` | Resume summary paragraphs |
 | `list_resumes`, `get_resume` | Resumes (get: composed with selected jobs/projects/bullets/skills/summary/company) |
-| `list_applications`, `get_application` | Application pipeline (list: optional `status` filter) |
+| `list_applications`, `get_application` | Application pipeline (list: optional `status` filter; get: with company and saved PDF copies) |
 | `list_jobs`, `get_job` | Work history (get: with bullets) |
 | `list_projects`, `get_project` | Side projects (get: with bullets) |
 | `list_companies`, `get_company` | Research targets |
 | `get_skills` | Skill groups |
+| `get_resume_pdf_link` | Link to a resume rendered as a PDF right now, plus its download name; opens only where the user is signed in to the app |
 | `get_keyword_coverage` | Which job-posting terms a resume covers, has in the library unused, or lacks (`resumeId`, `applicationId`) |
 | `get_tech_stack` | Unified tech-keyword graph (nodes + co-occurrence links) |
 | `list_bullets_for` | Bullets for a specific job or project |
-| `update_application_status` | Move an application through the pipeline (wishlist/applied/interviewing/offer/accepted/rejected) |
+| `update_application_status` | Move an application through the pipeline (wishlist/applied/interviewing/offer/accepted/rejected); wishlist to applied also saves a copy of the linked resume |
+| `snapshot_application_resume` | Save a frozen PDF copy of the application's linked resume ("what I sent"); `get_application` lists saved copies with download links |
 | `append_application_note` | Append a timestamped note to an application |
 | `add_skill` | Create a new skill group `(category, name, items)` |
 | `add_bullet` | Add a bullet to a job or project |

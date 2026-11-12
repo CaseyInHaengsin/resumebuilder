@@ -20,6 +20,6 @@ export async function countResumePages(templateId: TemplateId, data: ResumeData)
 }
 
 /** Counts `/Type /Page` objects (not `/Pages`) in the PDF source. */
-function countPdfPages(source: string): number {
+export function countPdfPages(source: string): number {
   return source.match(/\/Type\s*\/Page(?![a-zA-Z])/g)?.length ?? 0;
 }

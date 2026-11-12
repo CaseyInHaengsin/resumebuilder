@@ -22,6 +22,9 @@ import {
 import { buildTechStackGraph } from "~/lib/techstack.server";
 import { buildResumeData } from "~/lib/resume-data";
 import { analyzeCoverage, type LibraryItem } from "~/lib/keywords";
+import { getPublicUrl } from "~/lib/oauth.server";
+import { listApplicationDocuments } from "~/lib/documents.server";
+import { loadResumeForPdf } from "~/lib/resume-pdf.server";
 
 function toJsonContent(data: unknown) {
   return {
@@ -248,7 +251,14 @@ function composeApplication(userId: number, applicationId: number) {
         )
         .get()
     : null;
-  return { application: app, company: company ?? null };
+  const documents = listApplicationDocuments(userId, applicationId).map((d) => ({
+    id: d.id,
+    kind: d.kind,
+    fileName: d.fileName,
+    createdAt: d.createdAt,
+    url: `${getPublicUrl()}/documents/${d.id}`,
+  }));
+  return { application: app, company: company ?? null, documents };
 }
 
 function composeJob(userId: number, jobId: number) {
@@ -523,13 +533,30 @@ export function registerReadTools(server: McpServer, userId: number): void {
     "get_application",
     {
       description:
-        "Returns a single application with its resolved company (if any).",
+        "Returns a single application with its resolved company (if any) and its stored documents: PDF copies of what was sent, newest first, each with { id, kind ('resume' | 'cover_letter'), fileName, createdAt, url }. A url downloads the copy and needs the user to be signed in to the app in their browser.",
       inputSchema: { id: z.number().int().positive() },
     },
     async ({ id }) => {
       const data = composeApplication(userId, id);
       if (!data) return notFound(`Application ${id} not found`);
       return toJsonContent(data);
+    },
+  );
+
+  server.registerTool(
+    "get_resume_pdf_link",
+    {
+      description:
+        "Returns a link to a resume rendered as a PDF exactly as it looks right now, and the file name it downloads as: { url, fileName }. Give the link to the user to view or download the resume. The link only works in a browser where the user is signed in to the app; it is not a public link and you cannot fetch it yourself. Nothing is stored; to keep a frozen copy with an application use snapshot_application_resume.",
+      inputSchema: { resumeId: z.number().int().positive() },
+    },
+    async ({ resumeId }) => {
+      const loaded = loadResumeForPdf(userId, resumeId);
+      if (!loaded) return notFound(`Resume ${resumeId} not found`);
+      return toJsonContent({
+        url: `${getPublicUrl()}/api/resumes/${resumeId}/pdf`,
+        fileName: loaded.fileName,
+      });
     },
   );
 
