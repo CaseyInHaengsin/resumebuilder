@@ -18,7 +18,10 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-RUN pnpm run build
+# Public host(s) the app is served from, baked into the server build so form
+# posts are accepted behind the reverse proxy. See react-router.config.ts.
+ARG ALLOWED_ACTION_ORIGINS=""
+RUN ALLOWED_ACTION_ORIGINS="$ALLOWED_ACTION_ORIGINS" pnpm run build
 
 # Prune dev deps — runtime only needs production deps + better-sqlite3 native bindings
 RUN pnpm prune --prod

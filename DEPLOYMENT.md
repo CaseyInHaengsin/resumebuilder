@@ -13,6 +13,13 @@ This app deploys to a home server via DockerHub + Portainer, the same flow as `p
    export DOCKERHUB_USERNAME=your-dockerhub-user
    ```
    Defaults to `caseyinhaengsin`.
+3. Create `.env.deploy` in the project root (git-ignored) with the public host
+   the app is served from:
+   ```bash
+   ALLOWED_ACTION_ORIGINS=resume.example.com
+   ```
+   It is baked into the image at build time so form posts are accepted behind
+   the reverse proxy. `build-and-push.sh` refuses to build without it.
 
 ## Build and push
 
