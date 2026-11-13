@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # Builder ---------------------------------------------------------------------
-FROM node:26-bookworm-slim AS builder
+FROM node:26.13.1-bookworm-slim AS builder
 
 # better-sqlite3 ships prebuilt binaries; no native toolchain needed
 RUN apt-get update \
@@ -24,7 +24,7 @@ RUN pnpm run build
 RUN pnpm prune --prod
 
 # Runtime ---------------------------------------------------------------------
-FROM node:26-bookworm-slim AS runner
+FROM node:26.13.1-bookworm-slim AS runner
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates tini \
